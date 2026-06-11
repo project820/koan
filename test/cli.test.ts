@@ -540,6 +540,154 @@ describe("CLI contract", () => {
       expect(scopeAnswer?.answer).toBe("use --interactive mode");
     });
   });
+
+  it("enough rejects leading flags without touching session state", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const statePath = join(root, ".koan/session-state.json");
+      const before = await readFile(statePath);
+
+      const result = await runCli(["enough", "--dry-run"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan enough: --dry-run");
+      expect(result.stderr).toContain("Usage: koan");
+
+      const after = await readFile(statePath);
+      expect(after.equals(before)).toBe(true);
+    });
+  });
+
+  it("crystallize rejects unknown leading flags without writing documents", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Typo", "guard", "answer"], { cwd: root, home });
+
+      const goalPath = join(root, "koan/goal.md");
+      const before = await readFile(goalPath, "utf8");
+
+      const result = await runCli(["crystallize", "--dr-run"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan crystallize: --dr-run");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await readFile(goalPath, "utf8")).toBe(before);
+    });
+  });
+
+  it("qa rejects leading flags without creating the checklist", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["qa", "--x"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan qa: --x");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan/qa.md"))).toBe(false);
+    });
+  });
+
+  it("answer rejects leading flags before the axis", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const statePath = join(root, ".koan/session-state.json");
+      const before = await readFile(statePath);
+
+      const result = await runCli(["answer", "--x", "purpose", "text"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan answer: --x");
+      expect(result.stderr).toContain("Usage: koan");
+
+      const after = await readFile(statePath);
+      expect(after.equals(before)).toBe(true);
+    });
+  });
+
+  it("bright-idea keeps flag-like tokens after the classification value as free text", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const result = await runCli(["bright-idea", "--classify", "reject", "--extra"], {
+        cwd: root,
+        home
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Bright idea recorded (reject).");
+
+      const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
+      expect(ideas).toContain("Classification: reject");
+      expect(ideas).toMatch(/^--extra$/m);
+    });
+  });
+
+  it("bright-idea rejects unknown leading flags", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const result = await runCli(["bright-idea", "--bogus", "Idea", "text"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan bright-idea: --bogus");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan/bright-ideas.md"))).toBe(false);
+    });
+  });
+
+  it("handoff rejects leading flags instead of treating them as summary", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["handoff", "--x", "real", "summary"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan handoff: --x");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan/handoff.md"))).toBe(false);
+    });
+  });
+
+  it("hello rejects combined mode flags", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const result = await runCli(["hello", "--profile", "--setup"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Use only one of --setup, --profile, --reset-profile.");
+      expect(await fileExists(join(home, ".koan/profile.json"))).toBe(false);
+      expect(await fileExists(join(root, "koan"))).toBe(false);
+    });
+  });
+
+  it("hello rejects mode flags combined with --interactive", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      // --setup --interactive is rejected too: --setup exits after saving the
+      // profile, so there is no setup-then-loop flow for --interactive to join.
+      for (const args of [
+        ["hello", "--profile", "--interactive"],
+        ["hello", "--reset-profile", "--interactive"],
+        ["hello", "--setup", "--interactive"]
+      ]) {
+        const result = await runCli(args, { cwd: root, home });
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("Use only one of --setup, --profile, --reset-profile.");
+      }
+      expect(await fileExists(join(home, ".koan/profile.json"))).toBe(false);
+      expect(await fileExists(join(root, "koan"))).toBe(false);
+    });
+  });
 });
 
 describe("prompter", () => {

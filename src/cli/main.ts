@@ -57,7 +57,8 @@ function usage(): string {
     "  bright-idea [--classify <type>] <text>",
     "                             record a new idea without changing the plan",
     "  qa                         create or refresh QA checklist",
-    "  handoff <summary>          create document-based handoff"
+    "  handoff <summary>          create document-based handoff",
+    "                             (summaries beginning with \"--\" are unsupported)"
   ].join("\n");
 }
 
@@ -187,6 +188,17 @@ function parseLeadingFlags(args: string[], known: readonly string[]): LeadingFla
   return { flags, text: args.slice(index), unknown: null };
 }
 
+function rejectUnknownFlag(command: string, token: string): number {
+  console.error(`Unknown flag for koan ${command}: ${token}`);
+  console.error(usage());
+  return 1;
+}
+
+// hello mode flags select one exclusive behavior; --interactive only applies
+// to the question loop, so combining it with any mode flag is an error too
+// (--setup exits after saving the profile and never enters the loop).
+const HELLO_MODE_FLAGS = ["--setup", "--profile", "--reset-profile"] as const;
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const cwd = process.cwd();
@@ -200,12 +212,13 @@ async function main(argv: string[]): Promise<number> {
       "--yes",
       "--setup"
     ]);
-    if (parsed.unknown !== null) {
-      console.error(`Unknown flag for koan hello: ${parsed.unknown}`);
-      console.error(usage());
+    if (parsed.unknown !== null) return rejectUnknownFlag("hello", parsed.unknown);
+    const flags = parsed.flags;
+    const modeFlags = HELLO_MODE_FLAGS.filter((flag) => flags.includes(flag));
+    if (modeFlags.length > 1 || (modeFlags.length > 0 && flags.includes("--interactive"))) {
+      console.error("Use only one of --setup, --profile, --reset-profile.");
       return 1;
     }
-    const flags = parsed.flags;
     const interactive = process.stdin.isTTY === true || flags.includes("--interactive");
 
     if (flags.includes("--profile")) {
@@ -245,11 +258,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "status") {
     const parsed = parseLeadingFlags(rest, ["--archive", "--update"]);
-    if (parsed.unknown !== null) {
-      console.error(`Unknown flag for koan status: ${parsed.unknown}`);
-      console.error(usage());
-      return 1;
-    }
+    if (parsed.unknown !== null) return rejectUnknownFlag("status", parsed.unknown);
     const wantsArchive = parsed.flags.includes("--archive");
     const wantsUpdate = parsed.flags.includes("--update");
     if (wantsArchive && wantsUpdate) {
@@ -283,7 +292,11 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "answer") {
-    const [axis, ...answerWords] = rest;
+    // No leading flags: the axis is the first positional and everything after
+    // it is free text verbatim (flag-like tokens included).
+    const parsed = parseLeadingFlags(rest, []);
+    if (parsed.unknown !== null) return rejectUnknownFlag("answer", parsed.unknown);
+    const [axis, ...answerWords] = parsed.text;
     const answer = answerWords.join(" ").trim();
     if (!axis || !answer) {
       console.error("Usage: koan answer <axis> <text>");
@@ -295,13 +308,17 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "enough") {
+    const parsed = parseLeadingFlags(rest, []);
+    if (parsed.unknown !== null) return rejectUnknownFlag("enough", parsed.unknown);
     await acceptClarity({ cwd });
     console.log("Accepted current clarity.");
     return 0;
   }
 
   if (command === "crystallize") {
-    const dryRun = rest.includes("--dry-run");
+    const parsed = parseLeadingFlags(rest, ["--dry-run"]);
+    if (parsed.unknown !== null) return rejectUnknownFlag("crystallize", parsed.unknown);
+    const dryRun = parsed.flags.includes("--dry-run");
     const result = await crystallize({ cwd, homeDir, dryRun });
     if (dryRun) {
       console.log(`Dry run: ${result.plan.operations.length} operations planned.`);
@@ -312,19 +329,22 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "bright-idea") {
-    const args = [...rest];
+    // --classify is the only leading flag; its value is the first non-flag
+    // token, and everything after that value is idea text verbatim.
+    const parsed = parseLeadingFlags(rest, ["--classify"]);
+    if (parsed.unknown !== null) return rejectUnknownFlag("bright-idea", parsed.unknown);
     let classification: BrightIdeaClassification | undefined;
-    const classifyIndex = args.indexOf("--classify");
-    if (classifyIndex !== -1) {
-      const value = args[classifyIndex + 1];
+    let ideaWords = parsed.text;
+    if (parsed.flags.includes("--classify")) {
+      const value = ideaWords[0];
       if (!BRIGHT_IDEA_CLASSIFICATIONS.includes(value as BrightIdeaClassification)) {
         console.error(`Invalid classification: ${value}`);
         return 1;
       }
       classification = value as BrightIdeaClassification;
-      args.splice(classifyIndex, 2);
+      ideaWords = ideaWords.slice(1);
     }
-    const idea = args.join(" ").trim();
+    const idea = ideaWords.join(" ").trim();
     if (!idea) {
       console.error("Usage: koan bright-idea <text>");
       return 1;
@@ -335,13 +355,20 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "qa") {
+    const parsed = parseLeadingFlags(rest, []);
+    if (parsed.unknown !== null) return rejectUnknownFlag("qa", parsed.unknown);
     await qa({ cwd });
     console.log("QA checklist ready.");
     return 0;
   }
 
   if (command === "handoff") {
-    const summary = rest.join(" ").trim();
+    // No leading flags; the summary is everything after them, verbatim. A
+    // summary that itself begins with "--" is therefore unsupported (see
+    // usage), but later tokens may look like flags.
+    const parsed = parseLeadingFlags(rest, []);
+    if (parsed.unknown !== null) return rejectUnknownFlag("handoff", parsed.unknown);
+    const summary = parsed.text.join(" ").trim();
     if (!summary) {
       console.error("Usage: koan handoff <summary>");
       return 1;
