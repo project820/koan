@@ -142,4 +142,14 @@ describe("core commands", () => {
       expect(active).toContain("Archived goal: goal-example");
     });
   });
+
+  it("bright idea on a bare project creates the state gitignore atomically", async () => {
+    await withTempProject(async (root) => {
+      await brightIdea({ cwd: root, idea: "Standalone idea." });
+      const gitignore = await readFile(join(root, STATE_FILES.gitignore), "utf8");
+      expect(gitignore).toContain("command-log.json");
+      const log = await loadCommandLog(root);
+      expect(log.entries.map((entry) => entry.command)).toEqual(["koan bright-idea"]);
+    });
+  });
 });

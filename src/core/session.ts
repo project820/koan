@@ -3,6 +3,7 @@ import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "./constants.js";
 import { replaceManagedRegion } from "./documents.js";
+import { ensureStateGitignore } from "./gitPolicy.js";
 import { withFileLock } from "./lock.js";
 import { SessionStateSchema, type SessionState } from "./schemas.js";
 
@@ -26,7 +27,8 @@ export async function loadSessionState(projectRoot: string): Promise<SessionStat
   }
 }
 
-export async function saveSessionState(projectRoot: string, state: SessionState): Promise<void> {
+// Caller must hold the project write lock or be the locked write-plan path.
+async function persistSessionState(projectRoot: string, state: SessionState): Promise<void> {
   const path = join(projectRoot, STATE_FILES.sessionState);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
@@ -47,6 +49,7 @@ async function exists(path: string): Promise<boolean> {
 
 export async function archiveGoal(projectRoot: string, goalId: string): Promise<void> {
   await withFileLock(projectRoot, async () => {
+    await ensureStateGitignore(projectRoot);
     const archiveRoot = join(projectRoot, "koan/archive", goalId);
     await mkdir(archiveRoot, { recursive: true });
 
@@ -76,7 +79,7 @@ export async function archiveGoal(projectRoot: string, goalId: string): Promise<
 
     const state = await loadSessionState(projectRoot);
     if (state) {
-      await saveSessionState(projectRoot, {
+      await persistSessionState(projectRoot, {
         ...state,
         activeGoalId: null,
         phase: "archived",

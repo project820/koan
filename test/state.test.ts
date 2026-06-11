@@ -57,6 +57,7 @@ describe("command log", () => {
       expect(log.entries).toEqual([
         { at: "2026-06-01T00:00:00.000Z", command: "koan hello", summary: "Recovered." }
       ]);
+      expect(await readFile(join(root, `${STATE_FILES.commandLog}.bak`), "utf8")).toBe("{not json");
     });
   });
 
