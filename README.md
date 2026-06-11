@@ -49,15 +49,15 @@ From a checkout, `npm run mcp` starts the same server.
 | `koan_get_profile` | Read the global profile, learning mode, and per-project overrides. |
 | `koan_update_profile` | Apply a partial profile update; reports changed fields. |
 | `koan_inspect_project` | Report Koan state, bootstrap markers, document paths, and git policy. |
-| `koan_start_session` | Initialize or resume a session; optionally captures raw intent. |
+| `koan_start_session` | Initialize or resume a session; optionally captures raw intent and echoes the stored `rawIntent`. |
 | `koan_get_next_question` | Return the question for the most unclear axis and cache it. |
 | `koan_record_answer` | Record an answer (axis from input or the cached question) with optional host interpretation; returns a crystallize preview. |
 | `koan_crystallize_documents` | Write recorded answers into managed document regions (`dryRun` supported). |
-| `koan_get_status` | Summarize goal, status, next action, and stale-state warnings. |
-| `koan_update_status` | Write a status update into `koan/status.md` and the handoff document. |
+| `koan_get_status` | Summarize goal, status, next action, stale-state warnings, and the stored `rawIntent`. |
+| `koan_update_status` | Write a status update into `koan/status.md` and the handoff document; reports the affected files. |
 | `koan_record_bright_idea` | Record a classified idea plus a deterministic recommendation. |
-| `koan_prepare_qa` | Generate `koan/qa.md` with spec-compliance and quality checks. |
-| `koan_prepare_handoff` | Generate `koan/handoff.md`; touchless handoff stays disabled. |
+| `koan_prepare_qa` | Generate `koan/qa.md` with spec-compliance and quality checks; embeds an optional implementation summary and returns the checklist. |
+| `koan_prepare_handoff` | Generate `koan/handoff.md` (summary text optional); returns the document and next action; touchless handoff stays disabled. |
 
 All tool results are JSON in the first text content block; inputs are
 zod-validated and failures surface as MCP errors.

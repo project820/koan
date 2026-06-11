@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { acceptClarity } from "../src/core/answers.js";
+import { archive } from "../src/core/commands.js";
 import { readManagedSection } from "../src/core/documents.js";
 import { defaultProfile, loadProfile, saveProfile } from "../src/core/profile.js";
+import { AmbiguityAxisSchema } from "../src/core/schemas.js";
 import { createServer, toolNames } from "../src/mcp/server.js";
 
 describe("MCP server", () => {
@@ -134,8 +137,12 @@ describe("MCP semantic tools", () => {
       expect(typeof started.nextAction).toBe("string");
       expect(started.nextAction.length).toBeGreaterThan(0);
       expect(started.nextQuestion?.axis).toBe("purpose");
+      expect(started.rawIntent).toBe(rawIntent);
       expect(started.rawIntentCaptured).toBe(true);
       expect(await readFile(join(root, ".koan/mcp-cache.json"), "utf8")).toContain(rawIntent);
+
+      const reported = await callJson(client, "koan_get_status", { projectRoot: root });
+      expect(reported.rawIntent).toBe(rawIntent);
 
       const question = await callJson(client, "koan_get_next_question", {
         projectRoot: root,
@@ -170,10 +177,8 @@ describe("MCP semantic tools", () => {
       expect(recorded.nextQuestion?.axis).toBe("target_users");
       expect(typeof recorded.preview.description).toBe("string");
       expect(recorded.preview.files).toContain("koan/goal.md");
-      const operationCount = Array.isArray(recorded.preview.operations)
-        ? recorded.preview.operations.length
-        : recorded.preview.operations;
-      expect(operationCount).toBeGreaterThan(0);
+      expect(typeof recorded.preview.operations).toBe("number");
+      expect(recorded.preview.operations).toBeGreaterThan(0);
 
       const crystallized = await callJson(client, "koan_crystallize_documents", {
         projectRoot: root,
@@ -218,6 +223,144 @@ describe("MCP semantic tools", () => {
     });
   });
 
+  it("koan_record_answer rejects an unknown axis given as questionId", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await expectToolError(
+        client,
+        "koan_record_answer",
+        { projectRoot: root, homeDir: home, questionId: "not_an_axis", answerText: "Anything." },
+        /Unknown axis: not_an_axis/
+      );
+    });
+  });
+
+  it("koan_record_answer rejects a cached question from a previous goal's session", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      const first = await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await callJson(client, "koan_get_next_question", { projectRoot: root, homeDir: home });
+      await archive({ cwd: root });
+
+      const second = await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      expect(second.sessionId).not.toBe(first.sessionId);
+      const cache = JSON.parse(await readFile(join(root, ".koan/mcp-cache.json"), "utf8"));
+      expect(cache.lastQuestion).toBeNull();
+
+      await expectToolError(
+        client,
+        "koan_record_answer",
+        { projectRoot: root, homeDir: home, answerText: "Answer meant for the new goal." },
+        /No axis given and no cached question context/
+      );
+
+      // Even if a stale entry survives start_session, the session-id guard rejects it.
+      const stale = {
+        version: 1,
+        lastQuestion: {
+          sessionId: first.sessionId,
+          axis: "purpose",
+          questionId: "purpose",
+          askedAt: new Date().toISOString()
+        },
+        rawIntent: null
+      };
+      await writeFile(join(root, ".koan/mcp-cache.json"), `${JSON.stringify(stale, null, 2)}\n`, "utf8");
+      await expectToolError(
+        client,
+        "koan_record_answer",
+        { projectRoot: root, homeDir: home, answerText: "Answer meant for the new goal." },
+        /No axis given and no cached question context/
+      );
+    });
+  });
+
+  it("koan_record_answer advances the cached question across no-axis calls", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await callJson(client, "koan_get_next_question", { projectRoot: root, homeDir: home });
+
+      const first = await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        answerText: "First no-axis answer."
+      });
+      expect(first.answer.axis).toBe("purpose");
+      expect(first.nextQuestion?.axis).toBe("target_users");
+
+      const cache = JSON.parse(await readFile(join(root, ".koan/mcp-cache.json"), "utf8"));
+      expect(cache.lastQuestion?.axis).toBe("target_users");
+
+      const second = await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        answerText: "Second no-axis answer."
+      });
+      expect(second.answer.axis).toBe("target_users");
+      expect(second.answer.axis).not.toBe(first.answer.axis);
+    });
+  });
+
+  it("koan_get_next_question reports convergence once every axis is answered", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      let recorded;
+      for (const axis of AmbiguityAxisSchema.options) {
+        recorded = await callJson(client, "koan_record_answer", {
+          projectRoot: root,
+          homeDir: home,
+          axis,
+          answerText: `Answer for ${axis}.`
+        });
+      }
+      expect(recorded?.converged).toBe(true);
+      expect(recorded?.nextQuestion).toBeNull();
+
+      const question = await callJson(client, "koan_get_next_question", {
+        projectRoot: root,
+        homeDir: home
+      });
+      expect(question).toEqual({ converged: true, question: null });
+    });
+  });
+
+  it("koan_get_next_question honors the ready phase after koan enough", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await acceptClarity({ cwd: root });
+      const question = await callJson(client, "koan_get_next_question", {
+        projectRoot: root,
+        homeDir: home
+      });
+      expect(question).toEqual({ converged: true, question: null });
+    });
+  });
+
+  it("koan_crystallize_documents dryRun previews without writing", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      const answerText = "Dry-run purpose answer that must not be written.";
+      await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        axis: "purpose",
+        answerText
+      });
+
+      const result = await callJson(client, "koan_crystallize_documents", {
+        projectRoot: root,
+        homeDir: home,
+        dryRun: true
+      });
+      expect(result.executed).toBe(false);
+      expect(result.files).toContain("koan/goal.md");
+      expect(result.crystallizedAxes).toContain("purpose");
+      expect(result.plan.operations.length).toBeGreaterThan(0);
+
+      expect(await readFile(join(root, "koan/goal.md"), "utf8")).not.toContain(answerText);
+      await expect(readFile(join(root, "koan/decisions.md"), "utf8")).rejects.toThrow();
+    });
+  });
+
   it("koan_get_next_question rejects when no session exists", async () => {
     await withMcp(async ({ client, root, home }) => {
       await expectToolError(client, "koan_get_next_question", {
@@ -238,6 +381,7 @@ describe("MCP semantic tools", () => {
       });
       expect(updated.updated).toBe(true);
       expect(typeof updated.projectRoot).toBe("string");
+      expect(updated.files).toEqual(["koan/status.md", "koan/handoff.md"]);
 
       const statusDoc = await readFile(join(root, "koan/status.md"), "utf8");
       expect(readManagedSection(statusDoc, "current-status")).toContain(statusText);
@@ -247,6 +391,7 @@ describe("MCP semantic tools", () => {
       expect(Array.isArray(reported.staleWarnings)).toBe(true);
       expect(reported.summary).toContain("Next action:");
       expect(reported.summary).toContain(statusText);
+      expect(reported.rawIntent).toBeNull();
     });
   });
 
@@ -298,13 +443,20 @@ describe("MCP semantic tools", () => {
     await withMcp(async ({ client, root, home }) => {
       await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
 
+      const implementationSummary = "Implemented the Stage 5 MCP tool surface.";
       const qaResult = await callJson(client, "koan_prepare_qa", {
         projectRoot: root,
-        implementationSummary: "Implemented the Stage 5 MCP tool surface."
+        implementationSummary
       });
       expect(qaResult.prepared).toBe(true);
       expect(qaResult.path).toBe("koan/qa.md");
-      expect(await readFile(join(root, "koan/qa.md"), "utf8")).toContain("# QA");
+      expect(qaResult.checklist).toContain("# QA");
+      expect(qaResult.checklist).toContain("## Implementation Summary (host-provided)");
+      expect(qaResult.checklist).toContain(implementationSummary);
+      const qaDoc = await readFile(join(root, "koan/qa.md"), "utf8");
+      expect(qaDoc).toContain("# QA");
+      expect(qaDoc).toContain("## Implementation Summary (host-provided)");
+      expect(qaDoc).toContain(implementationSummary);
 
       const handoffText = "Continue with Stage 5 README polish.";
       const handoffResult = await callJson(client, "koan_prepare_handoff", {
@@ -313,8 +465,16 @@ describe("MCP semantic tools", () => {
       });
       expect(handoffResult.prepared).toBe(true);
       expect(handoffResult.path).toBe("koan/handoff.md");
+      expect(handoffResult.handoff).toContain(handoffText);
+      expect(typeof handoffResult.nextAction).toBe("string");
+      expect(handoffResult.nextAction.length).toBeGreaterThan(0);
       expect(handoffResult.experimental).toEqual({ enabled: false, adapter: null });
       expect(await readFile(join(root, "koan/handoff.md"), "utf8")).toContain(handoffText);
+
+      const defaulted = await callJson(client, "koan_prepare_handoff", { projectRoot: root });
+      expect(defaulted.prepared).toBe(true);
+      expect(defaulted.handoff).toContain("Handoff prepared via MCP.");
+      expect(await readFile(join(root, "koan/handoff.md"), "utf8")).toContain("Handoff prepared via MCP.");
     });
   });
 

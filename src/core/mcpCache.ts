@@ -18,12 +18,29 @@ export async function loadMcpCache(projectRoot: string): Promise<McpCache> {
   }
 }
 
-export async function saveMcpCache(projectRoot: string, cache: McpCache): Promise<void> {
+// Caller must hold the project write lock.
+async function writeMcpCacheUnlocked(projectRoot: string, cache: McpCache): Promise<McpCache> {
   const parsed = McpCacheSchema.parse(cache);
   const path = join(projectRoot, STATE_FILES.mcpCache);
+  await ensureStateGitignore(projectRoot);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return parsed;
+}
+
+export async function saveMcpCache(projectRoot: string, cache: McpCache): Promise<void> {
   await withFileLock(projectRoot, async () => {
-    await ensureStateGitignore(projectRoot);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+    await writeMcpCacheUnlocked(projectRoot, cache);
   });
+}
+
+// Atomic read-modify-write: load, mutate, and persist happen inside a single
+// file lock so concurrent tool calls cannot interleave between read and write.
+export async function updateMcpCache(
+  projectRoot: string,
+  mutate: (cache: McpCache) => McpCache
+): Promise<McpCache> {
+  return withFileLock(projectRoot, async () =>
+    writeMcpCacheUnlocked(projectRoot, mutate(await loadMcpCache(projectRoot)))
+  );
 }

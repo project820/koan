@@ -289,7 +289,7 @@ describe("core commands", () => {
       await hello({ cwd: root, homeDir: root });
       await acceptClarity({ cwd: root });
       const result = await status({ cwd: root });
-      expect(result.nextAction).toBe("archive the completed goal (koan archive)");
+      expect(result.nextAction).toBe("archive the completed goal (koan status --archive)");
       const log = await loadCommandLog(root);
       expect(log.entries.at(-1)?.command).toBe("koan enough");
     });

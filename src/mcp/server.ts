@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -11,10 +13,10 @@ import {
 import { z } from "zod";
 import { recordAnswer } from "../core/answers.js";
 import { brightIdea, handoff, hello, qa, status, updateStatus } from "../core/commands.js";
-import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "../core/constants.js";
+import { CORE_DOCUMENTS, KOAN_VERSION, LAZY_DOCUMENTS, STATE_FILES } from "../core/constants.js";
 import { crystallize } from "../core/crystallize.js";
 import { defaultKoanGitignore } from "../core/gitPolicy.js";
-import { loadMcpCache, saveMcpCache } from "../core/mcpCache.js";
+import { loadMcpCache, updateMcpCache } from "../core/mcpCache.js";
 import { defaultProfile, loadProfile, updateProfile } from "../core/profile.js";
 import { loadProfileRef } from "../core/profileRef.js";
 import { inspectProject, loadProjectConfig } from "../core/project.js";
@@ -28,7 +30,6 @@ import {
   LearningModeSchema,
   OutputUseSchema,
   UserProfileSchema,
-  type AmbiguityAxis,
   type UserProfile
 } from "../core/schemas.js";
 import { createInitialLedger, isConverged, loadLedger, selectMostUnclearAxis } from "../core/scoring.js";
@@ -130,7 +131,8 @@ const tools: Record<ToolName, ToolDefinition> = {
     }
   },
   koan_start_session: {
-    description: "Initialize or resume a Koan session and return its session id, ledger, next action, and next question.",
+    description:
+      "Initialize or resume a Koan session and return its session id, ledger, next action, and next question. The resume input is informational: hello always resumes an existing session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -154,14 +156,18 @@ const tools: Record<ToolName, ToolDefinition> = {
       const state = await loadSessionState(result.projectRoot);
       const { nextAction } = await status({ cwd: result.projectRoot });
       const ledger = await loadLedger(result.projectRoot);
+      const sessionId = state?.sessionId ?? null;
       const rawIntent = parsed.rawIntent ?? "";
       const rawIntentCaptured = rawIntent.length > 0;
-      if (rawIntentCaptured) {
-        const cache = await loadMcpCache(result.projectRoot);
-        await saveMcpCache(result.projectRoot, { ...cache, rawIntent });
-      }
+      // Drop any cached question that belongs to a different session so a
+      // later no-axis record_answer cannot target a stale goal's axis.
+      const cache = await updateMcpCache(result.projectRoot, (current) => ({
+        ...current,
+        rawIntent: rawIntentCaptured ? rawIntent : current.rawIntent,
+        lastQuestion: current.lastQuestion?.sessionId === sessionId ? current.lastQuestion : null
+      }));
       return {
-        sessionId: state?.sessionId ?? null,
+        sessionId,
         activeGoalId: result.activeGoalId,
         nextAction,
         ledger,
@@ -170,6 +176,7 @@ const tools: Record<ToolName, ToolDefinition> = {
         converged: result.converged,
         nextQuestion: result.nextQuestion,
         resumeRequested: parsed.resume ?? false,
+        rawIntent: cache.rawIntent,
         rawIntentCaptured
       };
     }
@@ -195,16 +202,15 @@ const tools: Record<ToolName, ToolDefinition> = {
       const threshold =
         (await loadProjectConfig(parsed.projectRoot))?.settings.convergenceThreshold ??
         DEFAULT_CONVERGENCE_THRESHOLD;
-      if (isConverged(ledger, threshold)) {
+      if (state.phase === "ready" || isConverged(ledger, threshold)) {
         return { converged: true, question: null };
       }
       const axis = selectMostUnclearAxis(ledger);
       const question = getQuestion(axis, profile);
-      const cache = await loadMcpCache(parsed.projectRoot);
-      await saveMcpCache(parsed.projectRoot, {
-        ...cache,
+      await updateMcpCache(parsed.projectRoot, (current) => ({
+        ...current,
         lastQuestion: { sessionId: state.sessionId, axis, questionId: axis, askedAt: new Date().toISOString() }
-      });
+      }));
       return {
         converged: false,
         questionId: axis,
@@ -243,19 +249,43 @@ const tools: Record<ToolName, ToolDefinition> = {
           axis: AmbiguityAxisSchema.optional(),
           questionId: z.string().optional(),
           source: z.string().optional(),
-          interpretation: z.object({ clarity: z.number().optional() }).optional()
+          interpretation: z.object({ clarity: z.number().min(0).max(1).optional() }).optional()
         })
         .parse(args);
-      const resolvedAxis =
-        parsed.axis ?? parsed.questionId ?? (await loadMcpCache(parsed.projectRoot)).lastQuestion?.axis;
-      if (resolvedAxis === undefined) throw new Error("No axis given and no cached question context.");
+      const state = await loadSessionState(parsed.projectRoot);
+      let candidate: string | undefined = parsed.axis ?? parsed.questionId;
+      if (candidate === undefined && state) {
+        // Only trust the cached question when it was asked in this session;
+        // a cache left over from an earlier goal must not absorb answers.
+        const cached = (await loadMcpCache(parsed.projectRoot)).lastQuestion;
+        if (cached && cached.sessionId === state.sessionId) candidate = cached.axis;
+      }
+      if (candidate === undefined) throw new Error("No axis given and no cached question context.");
+      const resolvedAxis = AmbiguityAxisSchema.safeParse(candidate);
+      if (!resolvedAxis.success) throw new Error(`Unknown axis: ${candidate}`);
       const result = await recordAnswer({
         cwd: parsed.projectRoot,
         homeDir: parsed.homeDir,
-        axis: resolvedAxis as AmbiguityAxis,
+        axis: resolvedAxis.data,
         answer: parsed.answerText,
         clarity: parsed.interpretation?.clarity
       });
+      if (state) {
+        // Advance the cached question so consecutive no-axis answers walk the
+        // axes instead of re-answering the axis from get_next_question.
+        const sessionId = state.sessionId;
+        await updateMcpCache(parsed.projectRoot, (current) => ({
+          ...current,
+          lastQuestion: result.nextQuestion
+            ? {
+                sessionId,
+                axis: result.nextQuestion.axis,
+                questionId: result.nextQuestion.axis,
+                askedAt: new Date().toISOString()
+              }
+            : null
+        }));
+      }
       const preview = await crystallize({ cwd: parsed.projectRoot, homeDir: parsed.homeDir, dryRun: true });
       return {
         ledger: result.ledger,
@@ -296,7 +326,8 @@ const tools: Record<ToolName, ToolDefinition> = {
     }
   },
   koan_get_status: {
-    description: "Read the status summary with stale-state warnings and the next recommended action.",
+    description:
+      "Read the status summary with stale-state warnings, the next recommended action, and the captured raw intent.",
     inputSchema: {
       type: "object",
       properties: { projectRoot: { type: "string" } },
@@ -304,7 +335,9 @@ const tools: Record<ToolName, ToolDefinition> = {
     },
     handler: async (args) => {
       const parsed = z.object({ projectRoot: z.string() }).parse(args);
-      return status({ cwd: parsed.projectRoot });
+      const result = await status({ cwd: parsed.projectRoot });
+      const cache = await loadMcpCache(parsed.projectRoot);
+      return { ...result, rawIntent: cache.rawIntent };
     }
   },
   koan_update_status: {
@@ -323,7 +356,11 @@ const tools: Record<ToolName, ToolDefinition> = {
         .object({ projectRoot: z.string(), statusText: z.string(), source: z.string().optional() })
         .parse(args);
       const result = await updateStatus({ cwd: parsed.projectRoot, update: parsed.statusText });
-      return { updated: true, projectRoot: result.projectRoot };
+      return {
+        updated: true,
+        projectRoot: result.projectRoot,
+        files: [CORE_DOCUMENTS.status, LAZY_DOCUMENTS.handoff]
+      };
     }
   },
   koan_record_bright_idea: {
@@ -354,7 +391,8 @@ const tools: Record<ToolName, ToolDefinition> = {
     }
   },
   koan_prepare_qa: {
-    description: "Generate the QA checklist at koan/qa.md from the goal and plan documents.",
+    description:
+      "Generate the QA checklist at koan/qa.md from the goal and plan documents, embedding an optional host-provided implementation summary.",
     inputSchema: {
       type: "object",
       properties: {
@@ -367,21 +405,35 @@ const tools: Record<ToolName, ToolDefinition> = {
       const parsed = z
         .object({ projectRoot: z.string(), implementationSummary: z.string().optional() })
         .parse(args);
-      await qa({ cwd: parsed.projectRoot });
-      return { prepared: true, path: LAZY_DOCUMENTS.qa };
+      const result = await qa({
+        cwd: parsed.projectRoot,
+        implementationSummary: parsed.implementationSummary
+      });
+      return { prepared: true, path: LAZY_DOCUMENTS.qa, checklist: result.checklist };
     }
   },
   koan_prepare_handoff: {
-    description: "Write the document-based handoff at koan/handoff.md from the provided session summary.",
+    description:
+      "Write the document-based handoff at koan/handoff.md from the optional session summary and return the document with the next action.",
     inputSchema: {
       type: "object",
       properties: { projectRoot: { type: "string" }, text: { type: "string" } },
-      required: ["projectRoot", "text"]
+      required: ["projectRoot"]
     },
     handler: async (args) => {
-      const parsed = z.object({ projectRoot: z.string(), text: z.string() }).parse(args);
-      await handoff({ cwd: parsed.projectRoot, summary: parsed.text });
-      return { prepared: true, path: LAZY_DOCUMENTS.handoff, experimental: { enabled: false, adapter: null } };
+      const parsed = z.object({ projectRoot: z.string(), text: z.string().optional() }).parse(args);
+      const result = await handoff({
+        cwd: parsed.projectRoot,
+        summary: parsed.text ?? "Handoff prepared via MCP."
+      });
+      const { nextAction } = await status({ cwd: parsed.projectRoot });
+      return {
+        prepared: true,
+        path: LAZY_DOCUMENTS.handoff,
+        handoff: result.document,
+        nextAction,
+        experimental: { enabled: false, adapter: null }
+      };
     }
   }
 };
@@ -392,7 +444,7 @@ function isToolName(name: string): name is ToolName {
 
 export function createServer(): Server {
   const server = new Server(
-    { name: "koan", version: "0.1.0" },
+    { name: "koan", version: KOAN_VERSION },
     { capabilities: { tools: {} } }
   );
 
@@ -419,7 +471,20 @@ export async function runServer(): Promise<void> {
   await server.connect(transport);
 }
 
-if (process.argv[1]?.endsWith("server.js") || process.argv[1]?.endsWith("server.ts")) {
+// npm bin shims invoke this module through a symlink named koan-mcp, so the
+// entry path is realpath-resolved before comparing against this module's file;
+// the suffix checks remain as a fallback for environments without realpath.
+function isDirectInvocation(entry: string | undefined): boolean {
+  if (!entry) return false;
+  try {
+    if (realpathSync(entry) === fileURLToPath(import.meta.url)) return true;
+  } catch {
+    // fall through to the suffix checks
+  }
+  return entry.endsWith("server.js") || entry.endsWith("server.ts");
+}
+
+if (isDirectInvocation(process.argv[1])) {
   runServer().catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

@@ -133,7 +133,7 @@ export async function status(
     session.phase === "ready" ||
     (ledger !== null && ledger.goalId === session.activeGoalId && isConverged(ledger, threshold))
   ) {
-    nextAction = "archive the completed goal (koan archive)";
+    nextAction = "archive the completed goal (koan status --archive)";
   } else if (!ledger || ledger.goalId !== session.activeGoalId) {
     nextAction = "run koan hello";
   } else {
@@ -249,7 +249,9 @@ export async function brightIdea(
   return { classification, recommendation: BRIGHT_IDEA_RECOMMENDATIONS[classification] };
 }
 
-export async function qa(input: { cwd: string }): Promise<void> {
+export async function qa(
+  input: { cwd: string; implementationSummary?: string }
+): Promise<{ projectRoot: string; checklist: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
   const goalText = await readFile(join(projectRoot, CORE_DOCUMENTS.goal), "utf8").catch(() => null);
   const planText = await readFile(join(projectRoot, CORE_DOCUMENTS.plan), "utf8").catch(() => null);
@@ -262,6 +264,9 @@ export async function qa(input: { cwd: string }): Promise<void> {
   if (criteria !== null) {
     checklist += `\n## Review Criteria\n\n${buildManagedRegion("qa-criteria", criteria)}\n`;
   }
+  if (input.implementationSummary !== undefined) {
+    checklist += `\n## Implementation Summary (host-provided)\n\n${input.implementationSummary.trim()}\n`;
+  }
   await executeWritePlan(
     projectRoot,
     {
@@ -270,9 +275,12 @@ export async function qa(input: { cwd: string }): Promise<void> {
     },
     { log: { command: "koan qa", summary: "Generated QA checklist." } }
   );
+  return { projectRoot, checklist };
 }
 
-export async function handoff(input: { cwd: string; summary: string }): Promise<void> {
+export async function handoff(
+  input: { cwd: string; summary: string }
+): Promise<{ projectRoot: string; document: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
   const existing = await readFile(join(projectRoot, LAZY_DOCUMENTS.handoff), "utf8").catch(() => null);
   const latestStatus = existing === null ? null : readManagedSection(existing, "latest-status");
@@ -296,4 +304,5 @@ export async function handoff(input: { cwd: string; summary: string }): Promise<
     },
     { log: { command: "koan handoff", summary: "Created handoff document." } }
   );
+  return { projectRoot, document: content };
 }
