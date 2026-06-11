@@ -115,3 +115,37 @@ export const WritePlanSchema = z.object({
   operations: z.array(WritePlanOperationSchema)
 });
 export type WritePlan = z.infer<typeof WritePlanSchema>;
+
+export const CommandLogEntrySchema = z.object({
+  at: z.string(),
+  command: z.string(),
+  summary: z.string()
+});
+export type CommandLogEntry = z.infer<typeof CommandLogEntrySchema>;
+
+export const CommandLogSchema = z.object({
+  version: z.literal(1),
+  entries: z.array(CommandLogEntrySchema)
+});
+export type CommandLog = z.infer<typeof CommandLogSchema>;
+
+export const UserProfileRefSchema = z.object({
+  version: z.literal(1),
+  profilePath: z.string(),
+  overrides: UserProfileSchema.partial()
+});
+export type UserProfileRef = z.infer<typeof UserProfileRefSchema>;
+
+export const QuestionContextSchema = z.object({
+  sessionId: z.string(),
+  axis: AmbiguityAxisSchema,
+  questionId: z.string(),
+  askedAt: z.string()
+});
+export type QuestionContext = z.infer<typeof QuestionContextSchema>;
+
+export const McpCacheSchema = z.object({
+  version: z.literal(1),
+  lastQuestion: QuestionContextSchema.nullable()
+});
+export type McpCache = z.infer<typeof McpCacheSchema>;

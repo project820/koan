@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultKoanGitignore } from "../src/core/gitPolicy.js";
+import { KoanLockError } from "../src/core/lock.js";
 import { ensureKoanProject, inspectProject } from "../src/core/project.js";
 import { readText, withTempProject } from "./helpers/fs.js";
 
@@ -43,6 +44,18 @@ describe("project initialization", () => {
       expect(state.isKoanProject).toBe(false);
       expect(state.hasAgentsMd).toBe(false);
       expect(state.hasClaudeMd).toBe(false);
+    });
+  });
+
+  it("fails initialization while a fresh live lock is held", async () => {
+    await withTempProject(async (root) => {
+      await mkdir(join(root, ".koan"), { recursive: true });
+      await writeFile(
+        join(root, ".koan/write.lock"),
+        `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`,
+        "utf8"
+      );
+      await expect(ensureKoanProject(root)).rejects.toThrow(KoanLockError);
     });
   });
 

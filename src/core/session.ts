@@ -1,8 +1,9 @@
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "./constants.js";
 import { replaceManagedRegion } from "./documents.js";
+import { withFileLock } from "./lock.js";
 import { SessionStateSchema, type SessionState } from "./schemas.js";
 
 export function createSessionState(activeGoalId: string | null, isoDate = new Date().toISOString()): SessionState {
@@ -45,40 +46,42 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export async function archiveGoal(projectRoot: string, goalId: string): Promise<void> {
-  const archiveRoot = join(projectRoot, "koan/archive", goalId);
-  await mkdir(archiveRoot, { recursive: true });
+  await withFileLock(projectRoot, async () => {
+    const archiveRoot = join(projectRoot, "koan/archive", goalId);
+    await mkdir(archiveRoot, { recursive: true });
 
-  const files = [
-    CORE_DOCUMENTS.goal,
-    CORE_DOCUMENTS.plan,
-    CORE_DOCUMENTS.status,
-    LAZY_DOCUMENTS.decisions,
-    LAZY_DOCUMENTS.qa,
-    LAZY_DOCUMENTS.handoff
-  ];
+    const files = [
+      CORE_DOCUMENTS.goal,
+      CORE_DOCUMENTS.plan,
+      CORE_DOCUMENTS.status,
+      LAZY_DOCUMENTS.decisions,
+      LAZY_DOCUMENTS.qa,
+      LAZY_DOCUMENTS.handoff
+    ];
 
-  for (const relative of files) {
-    const source = join(projectRoot, relative);
-    if (await exists(source)) {
-      await copyFile(source, join(archiveRoot, relative.split("/").at(-1) ?? "document.md"));
+    for (const relative of files) {
+      const source = join(projectRoot, relative);
+      if (await exists(source)) {
+        await copyFile(source, join(archiveRoot, basename(relative)));
+      }
     }
-  }
 
-  const goalPath = join(projectRoot, CORE_DOCUMENTS.goal);
-  const currentGoal = await readFile(goalPath, "utf8").catch(() => "# Goal\n");
-  await writeFile(
-    goalPath,
-    replaceManagedRegion(currentGoal, "active-goal", `No active goal yet.\n\nArchived goal: ${goalId}`),
-    "utf8"
-  );
+    const goalPath = join(projectRoot, CORE_DOCUMENTS.goal);
+    const currentGoal = await readFile(goalPath, "utf8").catch(() => "# Goal\n");
+    await writeFile(
+      goalPath,
+      replaceManagedRegion(currentGoal, "active-goal", `No active goal yet.\n\nArchived goal: ${goalId}`),
+      "utf8"
+    );
 
-  const state = await loadSessionState(projectRoot);
-  if (state) {
-    await saveSessionState(projectRoot, {
-      ...state,
-      activeGoalId: null,
-      phase: "archived",
-      updatedAt: new Date().toISOString()
-    });
-  }
+    const state = await loadSessionState(projectRoot);
+    if (state) {
+      await saveSessionState(projectRoot, {
+        ...state,
+        activeGoalId: null,
+        phase: "archived",
+        updatedAt: new Date().toISOString()
+      });
+    }
+  });
 }

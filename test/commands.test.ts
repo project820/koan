@@ -1,7 +1,11 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { loadCommandLog } from "../src/core/commandLog.js";
 import { hello, status, brightIdea, qa, handoff } from "../src/core/commands.js";
+import { STATE_FILES } from "../src/core/constants.js";
+import { getProfilePath } from "../src/core/profile.js";
+import { loadProfileRef } from "../src/core/profileRef.js";
 import { archiveGoal } from "../src/core/session.js";
 import { withTempProject } from "./helpers/fs.js";
 
@@ -71,6 +75,59 @@ describe("core commands", () => {
       const text = await readFile(join(root, "koan/handoff.md"), "utf8");
       expect(text).toContain("MVP status: disabled");
       expect(text).toContain("document-based");
+    });
+  });
+
+  it("hello writes the profile ref and logs the command", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      expect(await exists(join(root, STATE_FILES.userProfileRef))).toBe(true);
+      const ref = await loadProfileRef(root);
+      expect(ref).toEqual({ version: 1, profilePath: getProfilePath(root), overrides: {} });
+      const log = await loadCommandLog(root);
+      expect(log.entries.map((entry) => entry.command)).toEqual(["koan hello"]);
+    });
+  });
+
+  it("bright idea keeps a single header across reruns", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await brightIdea({ cwd: root, idea: "First idea." });
+      await brightIdea({ cwd: root, idea: "Second idea." });
+      const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
+      expect(ideas.match(/^# Bright Ideas$/gm)).toHaveLength(1);
+      expect(ideas.match(/^## .+ — koan bright-idea$/gm)).toHaveLength(2);
+      expect(ideas).toContain("First idea.");
+      expect(ideas).toContain("Second idea.");
+    });
+  });
+
+  it("write commands append command log entries", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await brightIdea({ cwd: root, idea: "Track this." });
+      await qa({ cwd: root });
+      await handoff({ cwd: root, summary: "Continue Task 1." });
+      const log = await loadCommandLog(root);
+      expect(log.entries.map((entry) => entry.command)).toEqual([
+        "koan hello",
+        "koan bright-idea",
+        "koan qa",
+        "koan handoff"
+      ]);
+    });
+  });
+
+  it("status does not create or grow the command log", async () => {
+    await withTempProject(async (root) => {
+      await status({ cwd: root });
+      expect(await exists(join(root, STATE_FILES.commandLog))).toBe(false);
+
+      await hello({ cwd: root, homeDir: root });
+      const before = await readFile(join(root, STATE_FILES.commandLog), "utf8");
+      await status({ cwd: root });
+      const after = await readFile(join(root, STATE_FILES.commandLog), "utf8");
+      expect(after).toBe(before);
     });
   });
 
