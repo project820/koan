@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { appendCommandLog, loadCommandLog } from "../src/core/commandLog.js";
 import { KOAN_STATE_DIR, STATE_FILES } from "../src/core/constants.js";
+import { defaultKoanGitignore } from "../src/core/gitPolicy.js";
 import { loadMcpCache, saveMcpCache } from "../src/core/mcpCache.js";
 import { getProfilePath } from "../src/core/profile.js";
 import { ensureProfileRef, loadProfileRef } from "../src/core/profileRef.js";
@@ -58,6 +59,13 @@ describe("command log", () => {
       ]);
     });
   });
+
+  it("creates the state gitignore alongside the command log", async () => {
+    await withTempProject(async (root) => {
+      await appendCommandLog(root, { command: "koan handoff", summary: "First write." }, "2026-06-01T00:00:00.000Z");
+      expect(await readFile(join(root, STATE_FILES.gitignore), "utf8")).toBe(defaultKoanGitignore());
+    });
+  });
 });
 
 describe("profile ref", () => {
@@ -84,7 +92,7 @@ describe("profile ref", () => {
     });
   });
 
-  it("rewrites an unparseable ref", async () => {
+  it("rewrites an unparseable ref and preserves a backup", async () => {
     await withTempProject(async (root) => {
       await mkdir(join(root, KOAN_STATE_DIR), { recursive: true });
       await writeFile(join(root, STATE_FILES.userProfileRef), "{not json", "utf8");
@@ -92,6 +100,7 @@ describe("profile ref", () => {
       const ref = await ensureProfileRef(root, root);
       expect(ref).toEqual({ version: 1, profilePath: getProfilePath(root), overrides: {} });
       expect(await loadProfileRef(root)).toEqual(ref);
+      expect(await readFile(join(root, `${STATE_FILES.userProfileRef}.bak`), "utf8")).toBe("{not json");
     });
   });
 });

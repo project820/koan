@@ -100,7 +100,12 @@ export type SessionState = z.infer<typeof SessionStateSchema>;
 
 export const WritePlanOperationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("write"), path: z.string(), content: z.string() }),
-  z.object({ type: z.literal("append"), path: z.string(), content: z.string() }),
+  z.object({
+    type: z.literal("append"),
+    path: z.string(),
+    content: z.string(),
+    headerIfMissing: z.string().optional()
+  }),
   z.object({
     type: z.literal("managed-region"),
     path: z.string(),

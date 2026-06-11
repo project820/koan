@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { STATE_FILES } from "./constants.js";
+import { ensureStateGitignore } from "./gitPolicy.js";
 import { CommandLogEntrySchema, CommandLogSchema, type CommandLog } from "./schemas.js";
 import { withFileLock } from "./lock.js";
 
@@ -37,6 +38,7 @@ export async function appendCommandLog(
       version: 1,
       entries: [...current.entries, parsed].slice(-COMMAND_LOG_LIMIT)
     };
+    await ensureStateGitignore(projectRoot);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
     return next;

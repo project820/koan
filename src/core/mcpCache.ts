@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { STATE_FILES } from "./constants.js";
+import { ensureStateGitignore } from "./gitPolicy.js";
 import { McpCacheSchema, type McpCache } from "./schemas.js";
 import { withFileLock } from "./lock.js";
 
@@ -21,6 +22,7 @@ export async function saveMcpCache(projectRoot: string, cache: McpCache): Promis
   const parsed = McpCacheSchema.parse(cache);
   const path = join(projectRoot, STATE_FILES.mcpCache);
   await withFileLock(projectRoot, async () => {
+    await ensureStateGitignore(projectRoot);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
   });

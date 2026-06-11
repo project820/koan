@@ -44,7 +44,14 @@ export async function executeWritePlan(projectRoot: string, plan: WritePlan): Pr
 
       if (operation.type === "append") {
         const current = await readExisting(absolute);
-        await writeFile(absolute, `${current.trimEnd()}\n\n${operation.content.trimEnd()}\n`, "utf8");
+        const base = current.trimEnd();
+        const prefix =
+          base.length > 0
+            ? `${base}\n\n`
+            : operation.headerIfMissing
+              ? `${operation.headerIfMissing.trimEnd()}\n\n`
+              : "";
+        await writeFile(absolute, `${prefix}${operation.content.trimEnd()}\n`, "utf8");
       }
 
       if (operation.type === "managed-region") {

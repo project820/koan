@@ -1,5 +1,6 @@
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { STATE_FILES } from "./constants.js";
 
 export const LOCK_STALE_MS = 10 * 60 * 1000;
@@ -14,18 +15,23 @@ export class KoanLockError extends Error {
 interface LockInfo {
   pid: number;
   createdAt: string;
+  token: string | null;
 }
 
-function lockPayload(): string {
-  return `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() })}\n`;
+function lockPayload(token: string): string {
+  return `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString(), token })}\n`;
 }
 
 function parseLockInfo(raw: string): LockInfo | null {
   try {
-    const parsed = JSON.parse(raw) as { pid?: unknown; createdAt?: unknown };
+    const parsed = JSON.parse(raw) as { pid?: unknown; createdAt?: unknown; token?: unknown };
     if (typeof parsed.pid !== "number" || typeof parsed.createdAt !== "string") return null;
     if (Number.isNaN(Date.parse(parsed.createdAt))) return null;
-    return { pid: parsed.pid, createdAt: parsed.createdAt };
+    return {
+      pid: parsed.pid,
+      createdAt: parsed.createdAt,
+      token: typeof parsed.token === "string" ? parsed.token : null
+    };
   } catch {
     return null;
   }
@@ -62,20 +68,46 @@ async function inspectLock(lockPath: string): Promise<{ stale: boolean; holderPi
   }
 }
 
-async function tryAcquire(lockPath: string): Promise<boolean> {
+async function tryAcquire(lockPath: string, token: string): Promise<boolean> {
   try {
-    await writeFile(lockPath, lockPayload(), { encoding: "utf8", flag: "wx" });
+    await writeFile(lockPath, lockPayload(token), { encoding: "utf8", flag: "wx" });
     return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+async function reclaimStaleLock(lockPath: string): Promise<void> {
+  // rename is atomic: of N processes that judged the same lock stale, only
+  // the rename winner proceeds; losers fall through to the single retry.
+  const reclaimPath = `${lockPath}.reclaim-${process.pid}-${randomUUID()}`;
+  try {
+    await rename(lockPath, reclaimPath);
   } catch {
-    return false;
+    return;
+  }
+  await rm(reclaimPath, { force: true });
+}
+
+async function releaseLock(lockPath: string, token: string): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(lockPath, "utf8");
+  } catch {
+    return;
+  }
+  if (parseLockInfo(raw)?.token === token) {
+    await rm(lockPath, { force: true });
   }
 }
 
 export async function withFileLock<T>(projectRoot: string, fn: () => Promise<T>): Promise<T> {
   const lockPath = join(projectRoot, STATE_FILES.lock);
   await mkdir(dirname(lockPath), { recursive: true });
+  const token = randomUUID();
 
-  if (!(await tryAcquire(lockPath))) {
+  if (!(await tryAcquire(lockPath, token))) {
     const { stale, holderPid } = await inspectLock(lockPath);
     if (!stale) {
       const holder = holderPid === null ? "another process" : `pid ${holderPid}`;
@@ -83,8 +115,8 @@ export async function withFileLock<T>(projectRoot: string, fn: () => Promise<T>)
         `Koan write lock at ${STATE_FILES.lock} is held by ${holder}. Remove ${STATE_FILES.lock} if no Koan process is running.`
       );
     }
-    await rm(lockPath, { force: true });
-    if (!(await tryAcquire(lockPath))) {
+    await reclaimStaleLock(lockPath);
+    if (!(await tryAcquire(lockPath, token))) {
       throw new KoanLockError(`Koan write lock already exists at ${STATE_FILES.lock}`);
     }
   }
@@ -92,6 +124,6 @@ export async function withFileLock<T>(projectRoot: string, fn: () => Promise<T>)
   try {
     return await fn();
   } finally {
-    await rm(lockPath, { force: true });
+    await releaseLock(lockPath, token);
   }
 }
