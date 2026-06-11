@@ -128,4 +128,23 @@ describe("reconstructFromDocuments", () => {
       expect(await exists(join(root, KOAN_STATE_DIR))).toBe(false);
     });
   });
+
+  it("grants handoff readiness from a filled status document", async () => {
+    await withTempProject(async (root) => {
+      await ensureKoanProject(root);
+      const statusDoc = [
+        "# Status",
+        "",
+        '<!-- koan:section:start name="current-status" -->',
+        "Implemented the parser; rendering remains.",
+        '<!-- koan:section:end name="current-status" -->',
+        ""
+      ].join("\n");
+      await writeFile(join(root, "koan/status.md"), statusDoc, "utf8");
+
+      const result = await reconstructFromDocuments(root, ISO);
+      expect(result?.sources).toContain("koan/status.md");
+      expect(result?.ledger.axes.find((entry) => entry.axis === "handoff_readiness")?.clarity).toBe(0.5);
+    });
+  });
 });

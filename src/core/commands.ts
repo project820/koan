@@ -116,7 +116,7 @@ export async function status(
     (ledger !== null && ledger.goalId === session.activeGoalId && isConverged(ledger, threshold))
   ) {
     nextAction = "archive the completed goal (koan archive)";
-  } else if (!ledger) {
+  } else if (!ledger || ledger.goalId !== session.activeGoalId) {
     nextAction = "run koan hello";
   } else {
     nextAction = `answer the ${selectMostUnclearAxis(ledger)} question (${unresolvedAxes(ledger, threshold).length} axes unresolved)`;

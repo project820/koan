@@ -63,7 +63,7 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
 
   const trimmed = input.answer.trim();
   const clarity = input.clarity ?? (trimmed.length > 0 ? ANSWERED_CLARITY : 0);
-  const updatedLedger = updateAxisScore(ledger, input.axis, clarity, trimmed.slice(0, EVIDENCE_PREVIEW_LIMIT), isoDate);
+  const updatedLedger = updateAxisScore(ledger, input.axis, clarity, Array.from(trimmed).slice(0, EVIDENCE_PREVIEW_LIMIT).join(""), isoDate);
 
   const answer: AnswerRecord = {
     questionId: input.axis,

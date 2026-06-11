@@ -293,4 +293,32 @@ describe("core commands", () => {
       expect(log.entries.at(-1)?.command).toBe("koan enough");
     });
   });
+
+  it("hello recovers a surviving ledger when session state is lost", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Keep this evidence." });
+      await rm(join(root, STATE_FILES.sessionState));
+
+      const result = await hello({ cwd: root, homeDir: root });
+      expect(result.reconstructed).toBe(false);
+      expect(result.resumed).toBe(false);
+      const ledger = await loadLedger(root);
+      expect(ledger?.goalId).toBe(result.activeGoalId);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.8);
+    });
+  });
+
+  it("status falls back to hello when the ledger belongs to another goal", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const statePath = join(root, STATE_FILES.sessionState);
+      const state = JSON.parse(await readFile(statePath, "utf8"));
+      state.activeGoalId = "goal-someone-else";
+      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+      const result = await status({ cwd: root });
+      expect(result.nextAction).toBe("run koan hello");
+    });
+  });
 });
