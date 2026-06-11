@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { acceptClarity } from "../src/core/answers.js";
+import { loadCommandLog } from "../src/core/commandLog.js";
 import { archive } from "../src/core/commands.js";
 import { readManagedSection } from "../src/core/documents.js";
 import { defaultProfile, loadProfile, saveProfile } from "../src/core/profile.js";
@@ -210,6 +211,22 @@ describe("MCP semantic tools", () => {
     });
   });
 
+  it("koan_record_answer carries the source into the command-log summary", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        axis: "purpose",
+        answerText: "Keep agent work aligned with the user's intent.",
+        source: "host-agent"
+      });
+      const log = await loadCommandLog(root);
+      const entry = [...log.entries].reverse().find((candidate) => candidate.command === "koan answer");
+      expect(entry?.summary).toBe("Recorded answer for purpose (source: host-agent).");
+    });
+  });
+
   it("koan_record_answer rejects without axis, questionId, or cached question", async () => {
     await withMcp(async ({ client, root, home }) => {
       await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
@@ -385,6 +402,10 @@ describe("MCP semantic tools", () => {
 
       const statusDoc = await readFile(join(root, "koan/status.md"), "utf8");
       expect(readManagedSection(statusDoc, "current-status")).toContain(statusText);
+
+      const log = await loadCommandLog(root);
+      const entry = [...log.entries].reverse().find((candidate) => candidate.command === "koan status");
+      expect(entry?.summary).toBe("Recorded a status update (source: test).");
 
       const reported = await callJson(client, "koan_get_status", { projectRoot: root });
       expect(reported.didWrite).toBe(false);

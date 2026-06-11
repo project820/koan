@@ -32,6 +32,7 @@ export interface RecordAnswerInput {
   clarity?: number;
   question?: string;
   isoDate?: string;
+  source?: string;
 }
 
 export interface RecordAnswerResult {
@@ -85,6 +86,7 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
     updatedAt: isoDate
   };
 
+  const source = input.source?.trim();
   await executeWritePlan(
     projectRoot,
     {
@@ -94,7 +96,12 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
         { type: "write", path: STATE_FILES.ambiguityLedger, content: `${JSON.stringify(updatedLedger, null, 2)}\n` }
       ]
     },
-    { log: { command: "koan answer", summary: `Recorded answer for ${axis}.` } }
+    {
+      log: {
+        command: "koan answer",
+        summary: source ? `Recorded answer for ${axis} (source: ${source}).` : `Recorded answer for ${axis}.`
+      }
+    }
   );
 
   return {

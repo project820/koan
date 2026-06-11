@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "./constants.js";
 import { loadCommandLog } from "./commandLog.js";
-import { buildManagedRegion, executeWritePlan, readManagedSection, sanitizeRegionContent } from "./documents.js";
+import { executeWritePlan, readManagedSection, sanitizeRegionContent } from "./documents.js";
 import { buildHandoffDocument } from "./handoff.js";
 import {
   DEFAULT_ACTIVE_GOAL_PLACEHOLDER,
@@ -168,6 +168,7 @@ export interface UpdateStatusInput {
   cwd: string;
   update: string;
   isoDate?: string;
+  source?: string;
 }
 
 export async function updateStatus(input: UpdateStatusInput): Promise<{ projectRoot: string }> {
@@ -198,10 +199,16 @@ export async function updateStatus(input: UpdateStatusInput): Promise<{ projectR
     }
   );
 
+  const source = input.source?.trim();
   await executeWritePlan(
     projectRoot,
     { description: "Record status update", operations },
-    { log: { command: "koan status", summary: "Recorded a status update." } }
+    {
+      log: {
+        command: "koan status",
+        summary: source ? `Recorded a status update (source: ${source}).` : "Recorded a status update."
+      }
+    }
   );
 
   return { projectRoot };
@@ -259,19 +266,19 @@ export async function qa(
     activeGoal: goalText === null ? null : readManagedSection(goalText, "active-goal"),
     planSection: planText === null ? null : readManagedSection(planText, "implementation-plan")
   });
-  const existingQa = await readFile(join(projectRoot, LAZY_DOCUMENTS.qa), "utf8").catch(() => null);
-  const criteria = existingQa === null ? null : readManagedSection(existingQa, "qa-criteria");
-  if (criteria !== null) {
-    checklist += `\n## Review Criteria\n\n${buildManagedRegion("qa-criteria", criteria)}\n`;
-  }
   if (input.implementationSummary !== undefined) {
     checklist += `\n## Implementation Summary (host-provided)\n\n${input.implementationSummary.trim()}\n`;
   }
+  checklist = sanitizeRegionContent(checklist);
+  // A managed-region write only touches the qa-checklist region, so manual
+  // edits outside the markers and the crystallized qa-criteria region survive.
   await executeWritePlan(
     projectRoot,
     {
       description: "Create QA checklist",
-      operations: [{ type: "write", path: LAZY_DOCUMENTS.qa, content: checklist }]
+      operations: [
+        { type: "managed-region", path: LAZY_DOCUMENTS.qa, name: "qa-checklist", content: checklist }
+      ]
     },
     { log: { command: "koan qa", summary: "Generated QA checklist." } }
   );
@@ -282,25 +289,19 @@ export async function handoff(
   input: { cwd: string; summary: string }
 ): Promise<{ projectRoot: string; document: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
-  const existing = await readFile(join(projectRoot, LAZY_DOCUMENTS.handoff), "utf8").catch(() => null);
-  const latestStatus = existing === null ? null : readManagedSection(existing, "latest-status");
-  const handoffContext = existing === null ? null : readManagedSection(existing, "handoff-context");
-  let content = buildHandoffDocument({ summary: input.summary, experimentalHandoff: false });
-  if (latestStatus !== null) {
-    content += `\n## Latest Status\n\n${buildManagedRegion("latest-status", latestStatus)}\n`;
-  }
-  if (handoffContext !== null) {
-    content += `\n## Handoff Context\n\n${buildManagedRegion("handoff-context", handoffContext)}\n`;
-  }
+  const content = sanitizeRegionContent(
+    buildHandoffDocument({ summary: input.summary, experimentalHandoff: false })
+  );
+  // A managed-region write only touches the handoff-document region, so manual
+  // edits outside the markers and the latest-status / crystallized
+  // handoff-context regions survive.
   await executeWritePlan(
     projectRoot,
     {
       description: "Create handoff",
-      operations: [{
-        type: "write",
-        path: LAZY_DOCUMENTS.handoff,
-        content
-      }]
+      operations: [
+        { type: "managed-region", path: LAZY_DOCUMENTS.handoff, name: "handoff-document", content }
+      ]
     },
     { log: { command: "koan handoff", summary: "Created handoff document." } }
   );

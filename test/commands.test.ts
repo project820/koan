@@ -514,6 +514,47 @@ describe("core commands", () => {
     });
   });
 
+  it("qa preserves user-authored text outside managed regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await qa({ cwd: root });
+      const qaPath = join(root, "koan/qa.md");
+      const generated = await readFile(qaPath, "utf8");
+      await writeFile(
+        qaPath,
+        `Reviewer preamble outside any region.\n\n${generated}\nReviewer appendix outside any region.\n`,
+        "utf8"
+      );
+      await qa({ cwd: root, implementationSummary: "Second pass summary." });
+      const text = await readFile(qaPath, "utf8");
+      expect(text).toContain("Reviewer preamble outside any region.");
+      expect(text).toContain("Reviewer appendix outside any region.");
+      expect(text).toContain("Second pass summary.");
+      expect(text.match(/koan:section:start name="qa-checklist"/g)).toHaveLength(1);
+    });
+  });
+
+  it("handoff preserves user-authored text outside managed regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await handoff({ cwd: root, summary: "First handoff." });
+      const handoffPath = join(root, "koan/handoff.md");
+      const generated = await readFile(handoffPath, "utf8");
+      await writeFile(
+        handoffPath,
+        `Operator note outside any region.\n\n${generated}\nOperator appendix outside any region.\n`,
+        "utf8"
+      );
+      await handoff({ cwd: root, summary: "Second handoff." });
+      const text = await readFile(handoffPath, "utf8");
+      expect(text).toContain("Operator note outside any region.");
+      expect(text).toContain("Operator appendix outside any region.");
+      expect(text).toContain("Second handoff.");
+      expect(text).not.toContain("First handoff.");
+      expect(text.match(/koan:section:start name="handoff-document"/g)).toHaveLength(1);
+    });
+  });
+
   it("updateStatus preserves answers and skips handoff bootstrap when present", async () => {
     await withTempProject(async (root) => {
       await hello({ cwd: root, homeDir: root });

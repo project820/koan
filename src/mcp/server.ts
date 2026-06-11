@@ -268,7 +268,8 @@ const tools: Record<ToolName, ToolDefinition> = {
         homeDir: parsed.homeDir,
         axis: resolvedAxis.data,
         answer: parsed.answerText,
-        clarity: parsed.interpretation?.clarity
+        clarity: parsed.interpretation?.clarity,
+        source: parsed.source
       });
       if (state) {
         // Advance the cached question so consecutive no-axis answers walk the
@@ -355,7 +356,11 @@ const tools: Record<ToolName, ToolDefinition> = {
       const parsed = z
         .object({ projectRoot: z.string(), statusText: z.string(), source: z.string().optional() })
         .parse(args);
-      const result = await updateStatus({ cwd: parsed.projectRoot, update: parsed.statusText });
+      const result = await updateStatus({
+        cwd: parsed.projectRoot,
+        update: parsed.statusText,
+        source: parsed.source
+      });
       return {
         updated: true,
         projectRoot: result.projectRoot,
