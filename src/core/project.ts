@@ -11,7 +11,7 @@ import {
 } from "./constants.js";
 import { defaultKoanGitignore } from "./gitPolicy.js";
 import { withFileLock } from "./lock.js";
-import type { ProjectConfig } from "./schemas.js";
+import { ProjectConfigSchema, type ProjectConfig } from "./schemas.js";
 
 export interface ProjectInspection {
   projectRoot: string;
@@ -108,6 +108,18 @@ async function patchFile(path: string): Promise<void> {
   if (next !== current) await writeFile(path, next, "utf8");
 }
 
+export const DEFAULT_ACTIVE_GOAL_PLACEHOLDER = "No active goal yet.";
+export const DEFAULT_PLAN_PLACEHOLDER = "No implementation plan recorded yet.";
+
+export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig | null> {
+  try {
+    const raw = await readFile(join(projectRoot, STATE_FILES.project), "utf8");
+    return ProjectConfigSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
   const projectRoot = await findProjectRoot(start);
   return withFileLock(projectRoot, async () => {
@@ -115,21 +127,23 @@ export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
     await mkdir(join(projectRoot, KOAN_STATE_DIR), { recursive: true });
 
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `goal.md`, `status.md`, and `plan.md` first.\n");
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), "# Goal\n\n## Active Goal\n\n<!-- koan:section:start name=\"active-goal\" -->\nNo active goal yet.\n<!-- koan:section:end name=\"active-goal\" -->\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), `# Goal\n\n## Active Goal\n\n<!-- koan:section:start name="active-goal" -->\n${DEFAULT_ACTIVE_GOAL_PLACEHOLDER}\n<!-- koan:section:end name="active-goal" -->\n`);
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), "# Status\n\n<!-- koan:section:start name=\"current-status\" -->\nNo status recorded yet.\n<!-- koan:section:end name=\"current-status\" -->\n");
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), "# Plan\n\n<!-- koan:section:start name=\"implementation-plan\" -->\nNo implementation plan recorded yet.\n<!-- koan:section:end name=\"implementation-plan\" -->\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), `# Plan\n\n<!-- koan:section:start name="implementation-plan" -->\n${DEFAULT_PLAN_PLACEHOLDER}\n<!-- koan:section:end name="implementation-plan" -->\n`);
     await ensureFile(join(projectRoot, STATE_FILES.gitignore), defaultKoanGitignore());
 
     await patchFile(join(projectRoot, "AGENTS.md"));
     await patchFile(join(projectRoot, "CLAUDE.md"));
 
+    const existing = await loadProjectConfig(projectRoot);
     const config: ProjectConfig = {
       version: 1,
       koanVersion: KOAN_VERSION,
       projectRoot,
-      strictness: "advisory",
-      experimentalHandoff: false,
-      documents: CORE_DOCUMENTS
+      strictness: existing?.strictness ?? "advisory",
+      experimentalHandoff: existing?.experimentalHandoff ?? false,
+      documents: CORE_DOCUMENTS,
+      settings: existing?.settings ?? { convergenceThreshold: 0.7 }
     };
     await writeFile(join(projectRoot, STATE_FILES.project), `${JSON.stringify(config, null, 2)}\n`, "utf8");
     return config;

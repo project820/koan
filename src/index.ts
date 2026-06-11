@@ -10,4 +10,6 @@ export * from "./core/mcpCache.js";
 export * from "./core/questions.js";
 export * from "./core/scoring.js";
 export * from "./core/session.js";
+export * from "./core/reconstruct.js";
+export * from "./core/answers.js";
 export * from "./core/commands.js";

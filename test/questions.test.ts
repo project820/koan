@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createInitialLedger, selectMostUnclearAxis, updateAxisScore } from "../src/core/scoring.js";
+import {
+  createInitialLedger,
+  isConverged,
+  selectMostUnclearAxis,
+  unresolvedAxes,
+  updateAxisScore
+} from "../src/core/scoring.js";
 import { getQuestion } from "../src/core/questions.js";
 import { defaultProfile } from "../src/core/profile.js";
+import { AmbiguityAxisSchema, SessionStateSchema } from "../src/core/schemas.js";
 
 describe("questions", () => {
   it("translates the same axis for different profile levels", () => {
@@ -29,5 +36,55 @@ describe("scoring", () => {
     const ledger = createInitialLedger("goal-1", "2026-06-11T00:00:00.000Z");
     const updated = updateAxisScore(ledger, "purpose", 0.9, "User explained purpose.", "2026-06-11T00:01:00.000Z");
     expect(selectMostUnclearAxis(updated)).toBe("target_users");
+  });
+
+  it("reports convergence only when every axis meets the threshold", () => {
+    let ledger = createInitialLedger("goal-1", "2026-06-11T00:00:00.000Z");
+    expect(isConverged(ledger, 0.7)).toBe(false);
+
+    for (const axis of AmbiguityAxisSchema.options) {
+      ledger = updateAxisScore(ledger, axis, 0.7, "Answered.", "2026-06-11T00:01:00.000Z");
+    }
+    expect(isConverged(ledger, 0.7)).toBe(true);
+
+    const dipped = updateAxisScore(ledger, "scope", 0.69, "Scope reopened.", "2026-06-11T00:02:00.000Z");
+    expect(isConverged(dipped, 0.7)).toBe(false);
+    expect(isConverged(dipped, 0.69)).toBe(true);
+  });
+
+  it("lists unresolved axes most unclear first with schema-order ties", () => {
+    let ledger = createInitialLedger("goal-1", "2026-06-11T00:00:00.000Z");
+    ledger = updateAxisScore(ledger, "purpose", 0.9, "Clear purpose.", "2026-06-11T00:01:00.000Z");
+    ledger = updateAxisScore(ledger, "scope", 0.3, "Partial scope.", "2026-06-11T00:02:00.000Z");
+    ledger = updateAxisScore(ledger, "current_goal", 0.3, "Partial goal.", "2026-06-11T00:03:00.000Z");
+    ledger = updateAxisScore(ledger, "constraints", 0.1, "Vague constraints.", "2026-06-11T00:04:00.000Z");
+
+    expect(unresolvedAxes(ledger, 0.7)).toEqual([
+      "target_users",
+      "non_goals",
+      "success_criteria",
+      "philosophical_intent",
+      "implementation_plan",
+      "qa_criteria",
+      "handoff_readiness",
+      "constraints",
+      "current_goal",
+      "scope"
+    ]);
+    expect(unresolvedAxes(ledger, 0)).toEqual([]);
+  });
+});
+
+describe("session state schema", () => {
+  it("parses old session state without answers and yields an empty list", () => {
+    const parsed = SessionStateSchema.parse({
+      version: 1,
+      sessionId: "session-1",
+      activeGoalId: "goal-1",
+      phase: "questioning",
+      lastQuestionId: null,
+      updatedAt: "2026-06-11T00:00:00.000Z"
+    });
+    expect(parsed.answers).toEqual([]);
   });
 });

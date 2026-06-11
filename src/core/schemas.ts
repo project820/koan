@@ -43,6 +43,11 @@ export const UserProfileSchema = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
+export const ProjectSettingsSchema = z
+  .object({ convergenceThreshold: z.number().min(0).max(1) })
+  .default({ convergenceThreshold: 0.7 });
+export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
+
 export const ProjectConfigSchema = z.object({
   version: z.literal(1),
   koanVersion: z.string(),
@@ -54,7 +59,8 @@ export const ProjectConfigSchema = z.object({
     goal: z.string(),
     status: z.string(),
     plan: z.string()
-  })
+  }),
+  settings: ProjectSettingsSchema
 });
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
@@ -88,12 +94,22 @@ export const AmbiguityLedgerSchema = z.object({
 });
 export type AmbiguityLedger = z.infer<typeof AmbiguityLedgerSchema>;
 
+export const AnswerRecordSchema = z.object({
+  questionId: z.string(),
+  axis: AmbiguityAxisSchema,
+  question: z.string(),
+  answer: z.string(),
+  recordedAt: z.string()
+});
+export type AnswerRecord = z.infer<typeof AnswerRecordSchema>;
+
 export const SessionStateSchema = z.object({
   version: z.literal(1),
   sessionId: z.string(),
   activeGoalId: z.string().nullable(),
   phase: z.enum(["setup", "questioning", "crystallizing", "ready", "archived"]),
   lastQuestionId: z.string().nullable(),
+  answers: z.array(AnswerRecordSchema).default([]),
   updatedAt: z.string()
 });
 export type SessionState = z.infer<typeof SessionStateSchema>;

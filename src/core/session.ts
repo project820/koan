@@ -1,6 +1,7 @@
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { appendCommandLogInLock, type CommandLogInput } from "./commandLog.js";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "./constants.js";
 import { replaceManagedRegion } from "./documents.js";
 import { ensureStateGitignore } from "./gitPolicy.js";
@@ -14,6 +15,7 @@ export function createSessionState(activeGoalId: string | null, isoDate = new Da
     activeGoalId,
     phase: activeGoalId ? "questioning" : "setup",
     lastQuestionId: null,
+    answers: [],
     updatedAt: isoDate
   };
 }
@@ -47,7 +49,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function archiveGoal(projectRoot: string, goalId: string): Promise<void> {
+export async function archiveGoal(projectRoot: string, goalId: string, log?: CommandLogInput): Promise<void> {
   await withFileLock(projectRoot, async () => {
     await ensureStateGitignore(projectRoot);
     const archiveRoot = join(projectRoot, "koan/archive", goalId);
@@ -85,6 +87,10 @@ export async function archiveGoal(projectRoot: string, goalId: string): Promise<
         phase: "archived",
         updatedAt: new Date().toISOString()
       });
+    }
+
+    if (log) {
+      await appendCommandLogInLock(projectRoot, log);
     }
   });
 }
