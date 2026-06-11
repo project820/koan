@@ -1,11 +1,14 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { acceptClarity, recordAnswer } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
-import { hello, status, brightIdea, qa, handoff } from "../src/core/commands.js";
+import { hello, status, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
 import { STATE_FILES } from "../src/core/constants.js";
+import { replaceManagedRegion } from "../src/core/documents.js";
 import { getProfilePath } from "../src/core/profile.js";
 import { loadProfileRef } from "../src/core/profileRef.js";
+import { loadLedger } from "../src/core/scoring.js";
 import { archiveGoal } from "../src/core/session.js";
 import { withTempProject } from "./helpers/fs.js";
 
@@ -24,6 +27,8 @@ describe("core commands", () => {
       const result = await hello({ cwd: root, homeDir: root });
       expect(result.projectRoot).toBe(root);
       expect(result.nextQuestion?.axis).toBe("purpose");
+      expect(result.resumed).toBe(false);
+      expect(result.reconstructed).toBe(false);
       expect(await exists(join(root, "koan/goal.md"))).toBe(true);
     });
   });
@@ -150,6 +155,197 @@ describe("core commands", () => {
       expect(gitignore).toContain("command-log.json");
       const log = await loadCommandLog(root);
       expect(log.entries.map((entry) => entry.command)).toEqual(["koan bright-idea"]);
+    });
+  });
+
+  it("hello resumes an existing session and preserves the ledger", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      expect(first.resumed).toBe(false);
+      await recordAnswer({
+        cwd: root,
+        homeDir: root,
+        axis: "purpose",
+        answer: "Keep coding agents aligned with the project's intent."
+      });
+      const second = await hello({ cwd: root, homeDir: root });
+      expect(second.resumed).toBe(true);
+      expect(second.reconstructed).toBe(false);
+      expect(second.lastAnswer?.axis).toBe("purpose");
+      const ledger = await loadLedger(root);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.8);
+    });
+  });
+
+  it("hello reconstructs from documents when session state is missing", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const goalPath = join(root, "koan/goal.md");
+      const goalDoc = await readFile(goalPath, "utf8");
+      await writeFile(
+        goalPath,
+        replaceManagedRegion(goalDoc, "active-goal", "Ship a CLI that keeps coding agents aligned with project intent."),
+        "utf8"
+      );
+      await rm(join(root, STATE_FILES.sessionState));
+      await rm(join(root, STATE_FILES.ambiguityLedger));
+
+      const result = await hello({ cwd: root, homeDir: root });
+      expect(result.resumed).toBe(false);
+      expect(result.reconstructed).toBe(true);
+      const ledger = await loadLedger(root);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.5);
+    });
+  });
+
+  it("archive archives the active goal and logs the command", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      const result = await archive({ cwd: root });
+      expect(result.archivedGoalId).toBe(first.activeGoalId);
+      expect(await exists(join(root, `koan/archive/${result.archivedGoalId}/goal.md`))).toBe(true);
+
+      const log = await loadCommandLog(root);
+      expect(log.entries.at(-1)?.command).toBe("koan archive");
+
+      const after = await status({ cwd: root });
+      expect(after.nextAction).toBe("run koan hello to start a new goal");
+    });
+  });
+
+  it("archive without an active goal throws", async () => {
+    await withTempProject(async (root) => {
+      await expect(archive({ cwd: root })).rejects.toThrow("No active goal to archive.");
+    });
+  });
+
+  it("status nextAction points at the purpose question on a fresh project", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const result = await status({ cwd: root });
+      expect(result.nextAction).toContain("purpose");
+      expect(result.nextAction).toContain("axes unresolved");
+      expect(result.summary).toContain(`Next action: ${result.nextAction}`);
+      expect(result.didWrite).toBe(false);
+    });
+  });
+
+  it("hello after archive rotates to a fresh goal", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Old goal purpose." });
+      await archive({ cwd: root });
+
+      const second = await hello({ cwd: root, homeDir: root });
+      expect(second.resumed).toBe(false);
+      expect(second.activeGoalId).not.toBeNull();
+      expect(second.activeGoalId).not.toBe(first.activeGoalId);
+      expect(second.lastAnswer).toBeNull();
+
+      const one = await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "New purpose." });
+      const two = await recordAnswer({ cwd: root, homeDir: root, axis: "target_users", answer: "New users." });
+      expect(two.ledger.goalId).toBe(one.ledger.goalId);
+      expect(two.ledger.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.8);
+      expect(two.ledger.axes.find((entry) => entry.axis === "target_users")?.clarity).toBe(0.8);
+    });
+  });
+
+  it("recordAnswer after archive throws until a new goal starts", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await archive({ cwd: root });
+      await expect(
+        recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Too late." })
+      ).rejects.toThrow("No active goal");
+    });
+  });
+
+  it("honors a non-default convergence threshold end to end", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const configPath = join(root, ".koan/project.json");
+      const config = JSON.parse(await readFile(configPath, "utf8"));
+      config.settings = { convergenceThreshold: 0.9 };
+      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+      const axes = [
+        "purpose", "target_users", "current_goal", "scope", "non_goals", "constraints",
+        "success_criteria", "philosophical_intent", "implementation_plan", "qa_criteria",
+        "handoff_readiness"
+      ] as const;
+      let last;
+      for (const axis of axes) {
+        last = await recordAnswer({ cwd: root, homeDir: root, axis, answer: `Answer for ${axis}.` });
+      }
+      expect(last?.converged).toBe(false);
+      expect(last?.unresolved).toHaveLength(11);
+      expect((await status({ cwd: root })).nextAction).toContain("axes unresolved");
+    });
+  });
+
+  it("acceptClarity marks the session ready and status recommends archival", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await acceptClarity({ cwd: root });
+      const result = await status({ cwd: root });
+      expect(result.nextAction).toBe("archive the completed goal (koan archive)");
+      const log = await loadCommandLog(root);
+      expect(log.entries.at(-1)?.command).toBe("koan enough");
+    });
+  });
+
+  it("hello recovers a surviving ledger when session state is lost", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Keep this evidence." });
+      await rm(join(root, STATE_FILES.sessionState));
+
+      const result = await hello({ cwd: root, homeDir: root });
+      expect(result.reconstructed).toBe(false);
+      expect(result.resumed).toBe(false);
+      const ledger = await loadLedger(root);
+      expect(ledger?.goalId).toBe(result.activeGoalId);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.8);
+    });
+  });
+
+  it("status falls back to hello when the ledger belongs to another goal", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const statePath = join(root, STATE_FILES.sessionState);
+      const state = JSON.parse(await readFile(statePath, "utf8"));
+      state.activeGoalId = "goal-someone-else";
+      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+      const result = await status({ cwd: root });
+      expect(result.nextAction).toBe("run koan hello");
+    });
+  });
+
+  it("archive removes the archived goal's ledger and blocks resurrection", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Old goal." });
+      await archive({ cwd: root });
+      expect(await exists(join(root, STATE_FILES.ambiguityLedger))).toBe(false);
+
+      await rm(join(root, STATE_FILES.sessionState));
+      const revived = await hello({ cwd: root, homeDir: root });
+      expect(revived.reconstructed).toBe(false);
+      expect(revived.activeGoalId).not.toBe(first.activeGoalId);
+      const ledger = await loadLedger(root);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0);
+    });
+  });
+
+  it("hello resume honors an accepted-clarity ready session", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await acceptClarity({ cwd: root });
+      const resumed = await hello({ cwd: root, homeDir: root });
+      expect(resumed.resumed).toBe(true);
+      expect(resumed.converged).toBe(true);
+      expect(resumed.nextQuestion).toBeNull();
     });
   });
 });
