@@ -83,7 +83,7 @@ export async function hello(input: { cwd: string; homeDir: string }): Promise<He
   );
 
   const threshold = config.settings.convergenceThreshold;
-  const converged = isConverged(ledger, threshold);
+  const converged = state.phase === "ready" || isConverged(ledger, threshold);
   return {
     projectRoot: config.projectRoot,
     resumed,

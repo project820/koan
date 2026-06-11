@@ -337,4 +337,15 @@ describe("core commands", () => {
       expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0);
     });
   });
+
+  it("hello resume honors an accepted-clarity ready session", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await acceptClarity({ cwd: root });
+      const resumed = await hello({ cwd: root, homeDir: root });
+      expect(resumed.resumed).toBe(true);
+      expect(resumed.converged).toBe(true);
+      expect(resumed.nextQuestion).toBeNull();
+    });
+  });
 });
