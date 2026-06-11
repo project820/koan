@@ -8,7 +8,8 @@ import {
 import { z } from "zod";
 import { brightIdea, handoff, hello, qa, status } from "../core/commands.js";
 import { inspectProject } from "../core/project.js";
-import { defaultProfile, loadProfile, saveProfile } from "../core/profile.js";
+import { loadProfile, updateProfile } from "../core/profile.js";
+import { UserProfileSchema } from "../core/schemas.js";
 
 export const toolNames = [
   "koan_get_profile",
@@ -94,8 +95,10 @@ export function createServer(): Server {
     }
 
     if (request.params.name === "koan_update_profile") {
-      const parsed = z.object({ homeDir: z.string(), profile: z.unknown() }).parse(args);
-      return textContent(await saveProfile(parsed.homeDir, defaultProfile(parsed.profile as Partial<ReturnType<typeof defaultProfile>>)));
+      const parsed = z
+        .object({ homeDir: z.string(), profile: UserProfileSchema.partial() })
+        .parse(args);
+      return textContent(await updateProfile(parsed.homeDir, parsed.profile));
     }
 
     return textContent({

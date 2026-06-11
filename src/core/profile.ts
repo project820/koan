@@ -35,6 +35,18 @@ export async function saveProfile(homeDir: string, profile: UserProfile): Promis
   return parsed;
 }
 
+export async function updateProfile(
+  homeDir: string,
+  changes: Partial<UserProfile>
+): Promise<UserProfile> {
+  const approved = UserProfileSchema.partial().parse(changes);
+  const base = (await loadProfile(homeDir)) ?? defaultProfile();
+  const defined = Object.fromEntries(
+    Object.entries(approved).filter(([, value]) => value !== undefined)
+  );
+  return saveProfile(homeDir, { ...base, ...defined } as UserProfile);
+}
+
 export async function resetProfile(homeDir: string): Promise<void> {
   await rm(getProfilePath(homeDir), { force: true });
 }
