@@ -4,6 +4,7 @@ import { defaultProfile, loadProfile } from "./profile.js";
 import { findProjectRoot, loadProjectConfig } from "./project.js";
 import { getQuestion, type KoanQuestion } from "./questions.js";
 import {
+  AmbiguityAxisSchema,
   DEFAULT_CONVERGENCE_THRESHOLD,
   type AmbiguityAxis,
   type AmbiguityLedger,
@@ -52,6 +53,7 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
   if (input.clarity !== undefined && (!Number.isFinite(input.clarity) || input.clarity < 0 || input.clarity > 1)) {
     throw new Error("clarity must be a finite number between 0 and 1.");
   }
+  const axis = AmbiguityAxisSchema.parse(input.axis);
 
   const profile = (await loadProfile(input.homeDir)) ?? defaultProfile();
   const isoDate = input.isoDate ?? new Date().toISOString();
@@ -63,12 +65,12 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
 
   const trimmed = input.answer.trim();
   const clarity = input.clarity ?? (trimmed.length > 0 ? ANSWERED_CLARITY : 0);
-  const updatedLedger = updateAxisScore(ledger, input.axis, clarity, Array.from(trimmed).slice(0, EVIDENCE_PREVIEW_LIMIT).join(""), isoDate);
+  const updatedLedger = updateAxisScore(ledger, axis, clarity, Array.from(trimmed).slice(0, EVIDENCE_PREVIEW_LIMIT).join(""), isoDate);
 
   const answer: AnswerRecord = {
-    questionId: input.axis,
-    axis: input.axis,
-    question: input.question ?? getQuestion(input.axis, profile).userFacingQuestion,
+    questionId: axis,
+    axis,
+    question: input.question ?? getQuestion(axis, profile).userFacingQuestion,
     answer: input.answer,
     recordedAt: isoDate
   };
@@ -78,7 +80,7 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
   const nextState: SessionState = {
     ...state,
     answers: [...state.answers, answer],
-    lastQuestionId: input.axis,
+    lastQuestionId: axis,
     phase: converged ? "ready" : "questioning",
     updatedAt: isoDate
   };
@@ -92,7 +94,7 @@ export async function recordAnswer(input: RecordAnswerInput): Promise<RecordAnsw
         { type: "write", path: STATE_FILES.ambiguityLedger, content: `${JSON.stringify(updatedLedger, null, 2)}\n` }
       ]
     },
-    { log: { command: "koan answer", summary: `Recorded answer for ${input.axis}.` } }
+    { log: { command: "koan answer", summary: `Recorded answer for ${axis}.` } }
   );
 
   return {

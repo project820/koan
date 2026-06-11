@@ -1,6 +1,9 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { recordAnswer, type RecordAnswerResult } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
+import { STATE_FILES } from "../src/core/constants.js";
 import { hello } from "../src/core/commands.js";
 import { AmbiguityAxisSchema, type AmbiguityAxis, type AmbiguityLedger } from "../src/core/schemas.js";
 import { loadLedger } from "../src/core/scoring.js";
@@ -113,6 +116,17 @@ describe("recordAnswer", () => {
       const axis = result.ledger.axes.find((entry) => entry.axis === "purpose");
       expect(axis?.clarity).toBe(0);
       expect(axis?.evidence).toEqual([]);
+    });
+  });
+
+  it("rejects an unknown axis before persisting anything", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const before = await readFile(join(root, STATE_FILES.sessionState), "utf8");
+      await expect(
+        recordAnswer({ cwd: root, homeDir: root, axis: "vibes" as never, answer: "x" })
+      ).rejects.toThrow();
+      expect(await readFile(join(root, STATE_FILES.sessionState), "utf8")).toBe(before);
     });
   });
 });
