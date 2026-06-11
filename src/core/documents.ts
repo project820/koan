@@ -46,6 +46,14 @@ export function appendLogEntry(input: string, source: string, content: string, i
   return `${input.trimEnd()}\n\n${entry}`;
 }
 
+export function buildManagedRegion(name: string, content: string): string {
+  return `${managedStart(name)}\n${content.trimEnd()}\n${managedEnd(name)}`;
+}
+
+export function sanitizeRegionContent(text: string): string {
+  return text.replaceAll("<!-- koan:", "<!- koan:");
+}
+
 export async function executeWritePlan(
   projectRoot: string,
   plan: WritePlan,

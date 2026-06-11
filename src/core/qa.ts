@@ -6,13 +6,17 @@ export interface QaContext {
 }
 
 function stripListMarker(line: string): string {
-  return line.replace(/^(?:\d+[.)]\s+|[-*]\s+)/, "");
+  return line.replace(/^(?:\d+[.)]\s+|[-*+]\s+(?:\[.\]\s+)?)/, "");
 }
 
 export function buildQaChecklist(context: QaContext = { activeGoal: null, planSection: null }): string {
   const lines: string[] = ["# QA"];
 
-  if (context.activeGoal !== null && !context.activeGoal.startsWith(DEFAULT_ACTIVE_GOAL_PLACEHOLDER)) {
+  if (
+    context.activeGoal !== null &&
+    context.activeGoal.trim().length > 0 &&
+    !context.activeGoal.startsWith(DEFAULT_ACTIVE_GOAL_PLACEHOLDER)
+  ) {
     lines.push("", "## Active Goal Under Review", "", context.activeGoal);
   }
 

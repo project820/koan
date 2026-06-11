@@ -170,4 +170,25 @@ describe("crystallize", () => {
       expect(log.entries.some((entry) => entry.command === "koan crystallize")).toBe(false);
     });
   });
+
+  it("open questions become None when every axis resolves", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Purpose.", clarity: 1 });
+      await crystallize({ cwd: root, homeDir: root });
+
+      const axes = [
+        "target_users", "current_goal", "scope", "non_goals", "constraints",
+        "success_criteria", "philosophical_intent", "implementation_plan", "qa_criteria",
+        "handoff_readiness"
+      ] as const;
+      for (const axis of axes) {
+        await recordAnswer({ cwd: root, homeDir: root, axis, answer: `Answer ${axis}.`, clarity: 1 });
+      }
+      await crystallize({ cwd: root, homeDir: root });
+
+      const text = await readText(join(root, "koan/open-questions.md"));
+      expect(readManagedSection(text, "open-questions")).toBe("None.");
+    });
+  });
 });

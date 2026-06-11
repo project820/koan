@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS } from "./constants.js";
-import { executeWritePlan } from "./documents.js";
+import { executeWritePlan, sanitizeRegionContent } from "./documents.js";
 import { defaultProfile, loadProfile } from "./profile.js";
 import { findProjectRoot, loadProjectConfig } from "./project.js";
 import { getQuestion } from "./questions.js";
@@ -100,11 +100,13 @@ export async function crystallize(input: CrystallizeInput): Promise<CrystallizeR
       type: "managed-region",
       path: target.path,
       name: target.region,
-      content: (latestAnswers.get(target.axis) ?? "").trim()
+      content: sanitizeRegionContent((latestAnswers.get(target.axis) ?? "").trim())
     });
   }
 
-  const ledger = (await loadLedger(projectRoot)) ?? createInitialLedger(state.activeGoalId, isoDate);
+  const stored = await loadLedger(projectRoot);
+  const ledger =
+    stored && stored.goalId === state.activeGoalId ? stored : createInitialLedger(state.activeGoalId, isoDate);
   const threshold =
     (await loadProjectConfig(projectRoot))?.settings.convergenceThreshold ?? DEFAULT_CONVERGENCE_THRESHOLD;
   const unresolved = unresolvedAxes(ledger, threshold);

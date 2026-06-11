@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 import { acceptClarity, recordAnswer } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
 import { hello, status, updateStatus, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
+import { crystallize } from "../src/core/crystallize.js";
 import { STATE_FILES } from "../src/core/constants.js";
-import { replaceManagedRegion } from "../src/core/documents.js";
+import { readManagedSection, replaceManagedRegion } from "../src/core/documents.js";
 import { getProfilePath } from "../src/core/profile.js";
 import { loadProfileRef } from "../src/core/profileRef.js";
 import { loadLedger } from "../src/core/scoring.js";
@@ -428,14 +429,14 @@ describe("core commands", () => {
     });
   });
 
-  it("brightIdea defaults to follow-up and records the classification", async () => {
+  it("brightIdea defaults to later-follow-up and records the classification", async () => {
     await withTempProject(async (root) => {
       await hello({ cwd: root, homeDir: root });
       const result = await brightIdea({ cwd: root, idea: "Add a TUI later." });
-      expect(result.classification).toBe("follow-up");
+      expect(result.classification).toBe("later-follow-up");
       expect(result.recommendation).toBe("Keep the current plan; revisit this after the active goal completes.");
       const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
-      expect(ideas).toContain("Classification: follow-up");
+      expect(ideas).toContain("Classification: later-follow-up");
       expect(ideas).toContain("Add a TUI later.");
     });
   });
@@ -466,6 +467,70 @@ describe("core commands", () => {
       const text = await readFile(join(root, "koan/qa.md"), "utf8");
       expect(text).toContain("Active Goal Under Review");
       expect(text).toContain("Ship the Koan MVP CLI.");
+    });
+  });
+
+  it("warning B clears after crystallize and re-crystallize keeps single regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "First purpose." });
+
+      const before = await status({ cwd: root });
+      expect(before.staleWarnings).toContain("recorded answers are not crystallized yet (run koan crystallize)");
+
+      await crystallize({ cwd: root, homeDir: root });
+      const after = await status({ cwd: root });
+      expect(after.staleWarnings).not.toContain("recorded answers are not crystallized yet (run koan crystallize)");
+
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Second purpose." });
+      await crystallize({ cwd: root, homeDir: root });
+      const goal = await readFile(join(root, "koan/goal.md"), "utf8");
+      expect(goal.match(/koan:section:start name="purpose"/g)).toHaveLength(1);
+      expect(goal).toContain("Second purpose.");
+      expect(goal).not.toContain("First purpose.");
+    });
+  });
+
+  it("qa preserves the crystallized qa-criteria region", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "qa_criteria", answer: "All tests green." });
+      await crystallize({ cwd: root, homeDir: root });
+      await qa({ cwd: root });
+      const text = await readFile(join(root, "koan/qa.md"), "utf8");
+      expect(readManagedSection(text, "qa-criteria")).toBe("All tests green.");
+      expect(text).toContain("Spec Compliance");
+    });
+  });
+
+  it("handoff preserves latest-status and handoff-context regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await updateStatus({ cwd: root, update: "Parser done.", isoDate: "2026-06-11T01:00:00.000Z" });
+      await handoff({ cwd: root, summary: "Continue with rendering." });
+      const text = await readFile(join(root, "koan/handoff.md"), "utf8");
+      expect(text).toContain("Continue with rendering.");
+      expect(readManagedSection(text, "latest-status")).toContain("Parser done.");
+    });
+  });
+
+  it("updateStatus preserves answers and skips handoff bootstrap when present", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Keep me." });
+      const stateBefore = JSON.parse(await readFile(join(root, STATE_FILES.sessionState), "utf8"));
+
+      await updateStatus({ cwd: root, update: "First update.", isoDate: "2026-06-11T02:00:00.000Z" });
+      await updateStatus({ cwd: root, update: "Second update.", isoDate: "2026-06-11T03:00:00.000Z" });
+
+      const stateAfter = JSON.parse(await readFile(join(root, STATE_FILES.sessionState), "utf8"));
+      expect(stateAfter.answers).toEqual(stateBefore.answers);
+      expect(stateAfter.sessionId).toBe(stateBefore.sessionId);
+      expect(stateAfter.updatedAt).toBe("2026-06-11T03:00:00.000Z");
+
+      const handoffDoc = await readFile(join(root, "koan/handoff.md"), "utf8");
+      expect(handoffDoc.match(/^# Handoff$/gm)).toHaveLength(1);
+      expect(readManagedSection(handoffDoc, "latest-status")).toContain("Second update.");
     });
   });
 });

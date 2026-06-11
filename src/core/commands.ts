@@ -1,7 +1,8 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, STATE_FILES } from "./constants.js";
-import { executeWritePlan, readManagedSection } from "./documents.js";
+import { loadCommandLog } from "./commandLog.js";
+import { buildManagedRegion, executeWritePlan, readManagedSection, sanitizeRegionContent } from "./documents.js";
 import { buildHandoffDocument } from "./handoff.js";
 import {
   DEFAULT_ACTIVE_GOAL_PLACEHOLDER,
@@ -144,8 +145,13 @@ export async function status(
     staleWarnings.push(`session state is stale (last updated ${session.updatedAt})`);
   }
   if (session && session.answers.length > 0) {
-    const activeGoal = readManagedSection(goal, "active-goal");
-    if (activeGoal === null || activeGoal.startsWith(DEFAULT_ACTIVE_GOAL_PLACEHOLDER)) {
+    const log = await loadCommandLog(projectRoot);
+    const lastCrystallize = [...log.entries].reverse().find((entry) => entry.command === "koan crystallize");
+    const lastAnswer = session.answers.at(-1);
+    if (
+      lastAnswer &&
+      (!lastCrystallize || Date.parse(lastCrystallize.at) < Date.parse(lastAnswer.recordedAt))
+    ) {
       staleWarnings.push("recorded answers are not crystallized yet (run koan crystallize)");
     }
   }
@@ -168,7 +174,7 @@ export async function updateStatus(input: UpdateStatusInput): Promise<{ projectR
   const projectRoot = await findProjectRoot(input.cwd);
   const state = await loadSessionState(projectRoot);
   if (!state) throw new Error("No active Koan session. Run koan hello first.");
-  const update = input.update.trim();
+  const update = sanitizeRegionContent(input.update.trim());
   if (!update) throw new Error("Status update text is required.");
   const isoDate = input.isoDate ?? new Date().toISOString();
 
@@ -210,12 +216,12 @@ export async function archive(input: { cwd: string }): Promise<{ archivedGoalId:
   return { archivedGoalId: goalId };
 }
 
-export type BrightIdeaClassification = "clarify" | "change-goal" | "follow-up" | "reject";
+export type BrightIdeaClassification = "clarify" | "change-goal" | "later-follow-up" | "reject";
 
 const BRIGHT_IDEA_RECOMMENDATIONS: Record<BrightIdeaClassification, string> = {
   clarify: "Refine the current goal with koan hello before implementing.",
   "change-goal": "Archive or re-scope the current goal before adopting this direction.",
-  "follow-up": "Keep the current plan; revisit this after the active goal completes.",
+  "later-follow-up": "Keep the current plan; revisit this after the active goal completes.",
   reject: "Recorded for reference; no action planned."
 };
 
@@ -223,7 +229,7 @@ export async function brightIdea(
   input: { cwd: string; idea: string; classification?: BrightIdeaClassification }
 ): Promise<{ classification: BrightIdeaClassification; recommendation: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
-  const classification = input.classification ?? "follow-up";
+  const classification = input.classification ?? "later-follow-up";
   const entry = `## ${new Date().toISOString()} — koan bright-idea\n\nClassification: ${classification}\n\n${input.idea.trim()}`;
   await executeWritePlan(
     projectRoot,
@@ -247,10 +253,15 @@ export async function qa(input: { cwd: string }): Promise<void> {
   const projectRoot = await findProjectRoot(input.cwd);
   const goalText = await readFile(join(projectRoot, CORE_DOCUMENTS.goal), "utf8").catch(() => null);
   const planText = await readFile(join(projectRoot, CORE_DOCUMENTS.plan), "utf8").catch(() => null);
-  const checklist = buildQaChecklist({
+  let checklist = buildQaChecklist({
     activeGoal: goalText === null ? null : readManagedSection(goalText, "active-goal"),
     planSection: planText === null ? null : readManagedSection(planText, "implementation-plan")
   });
+  const existingQa = await readFile(join(projectRoot, LAZY_DOCUMENTS.qa), "utf8").catch(() => null);
+  const criteria = existingQa === null ? null : readManagedSection(existingQa, "qa-criteria");
+  if (criteria !== null) {
+    checklist += `\n## Review Criteria\n\n${buildManagedRegion("qa-criteria", criteria)}\n`;
+  }
   await executeWritePlan(
     projectRoot,
     {
@@ -263,6 +274,16 @@ export async function qa(input: { cwd: string }): Promise<void> {
 
 export async function handoff(input: { cwd: string; summary: string }): Promise<void> {
   const projectRoot = await findProjectRoot(input.cwd);
+  const existing = await readFile(join(projectRoot, LAZY_DOCUMENTS.handoff), "utf8").catch(() => null);
+  const latestStatus = existing === null ? null : readManagedSection(existing, "latest-status");
+  const handoffContext = existing === null ? null : readManagedSection(existing, "handoff-context");
+  let content = buildHandoffDocument({ summary: input.summary, experimentalHandoff: false });
+  if (latestStatus !== null) {
+    content += `\n## Latest Status\n\n${buildManagedRegion("latest-status", latestStatus)}\n`;
+  }
+  if (handoffContext !== null) {
+    content += `\n## Handoff Context\n\n${buildManagedRegion("handoff-context", handoffContext)}\n`;
+  }
   await executeWritePlan(
     projectRoot,
     {
@@ -270,7 +291,7 @@ export async function handoff(input: { cwd: string; summary: string }): Promise<
       operations: [{
         type: "write",
         path: LAZY_DOCUMENTS.handoff,
-        content: buildHandoffDocument({ summary: input.summary, experimentalHandoff: false })
+        content
       }]
     },
     { log: { command: "koan handoff", summary: "Created handoff document." } }
