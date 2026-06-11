@@ -6,7 +6,7 @@ import { McpCacheSchema, type McpCache } from "./schemas.js";
 import { withFileLock } from "./lock.js";
 
 function freshMcpCache(): McpCache {
-  return { version: 1, lastQuestion: null };
+  return { version: 1, lastQuestion: null, rawIntent: null };
 }
 
 export async function loadMcpCache(projectRoot: string): Promise<McpCache> {

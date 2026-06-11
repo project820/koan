@@ -169,6 +169,7 @@ export type QuestionContext = z.infer<typeof QuestionContextSchema>;
 
 export const McpCacheSchema = z.object({
   version: z.literal(1),
-  lastQuestion: QuestionContextSchema.nullable()
+  lastQuestion: QuestionContextSchema.nullable(),
+  rawIntent: z.string().nullable().default(null)
 });
 export type McpCache = z.infer<typeof McpCacheSchema>;
