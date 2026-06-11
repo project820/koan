@@ -2,9 +2,12 @@ import { execFile, spawn } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createPrompter } from "../src/cli/prompt.js";
+import { AmbiguityAxisSchema } from "../src/core/schemas.js";
 import { withTempProject } from "./helpers/fs.js";
 
 const execFileAsync = promisify(execFile);
@@ -379,5 +382,184 @@ describe("CLI contract", () => {
       expect(statusResult.code).toBe(0);
       expect(statusResult.stdout).toContain("Next action: archive the completed goal");
     });
+  });
+
+  it("interactive resume revises the last answer", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await seedProfile(home);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Original", "answer"], { cwd: root, home });
+
+      const result = await runCli(["hello", "--interactive"], {
+        cwd: root,
+        home,
+        input: "r\nRevised purpose answer\nstop\n"
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Last answer (purpose):");
+      expect(result.stdout).toContain("Recorded purpose (clarity 0.8).");
+
+      const state = JSON.parse(await readFile(join(root, ".koan/session-state.json"), "utf8"));
+      const purposeAnswers = state.answers.filter(
+        (entry: { axis: string; answer: string }) => entry.axis === "purpose"
+      );
+      expect(purposeAnswers.at(-1)?.answer).toBe("Revised purpose answer");
+    });
+  });
+
+  it("interactive loop converges after answering every axis", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await seedProfile(home);
+
+      const answers = AmbiguityAxisSchema.options.map((axis, index) => `Answer ${index + 1} for ${axis}`);
+      const result = await runCli(["hello", "--interactive"], {
+        cwd: root,
+        home,
+        input: `${answers.join("\n")}\n`
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("All axes converged.");
+      expect(result.stdout).toContain("Session complete.");
+    });
+  });
+
+  it("re-asks the resume prompt on an unrecognized choice", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await seedProfile(home);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Original", "answer"], { cwd: root, home });
+
+      const result = await runCli(["hello", "--interactive"], {
+        cwd: root,
+        home,
+        input: "x\ns\n"
+      });
+
+      expect(result.code).toBe(0);
+      const resumePrompt = "Resume: [c]ontinue, [r]evise last answer, [s]top?";
+      expect(result.stdout.split(resumePrompt).length - 1).toBe(2);
+      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
+      expect(result.stdout).not.toContain("Recorded");
+    });
+  });
+
+  it("status rejects --update combined with --archive as leading flags", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const both = await runCli(["status", "--update", "--archive"], { cwd: root, home });
+      expect(both.code).toBe(1);
+      expect(both.stderr).toContain("Use either --update or --archive, not both.");
+
+      const reversed = await runCli(["status", "--archive", "--update", "x"], { cwd: root, home });
+      expect(reversed.code).toBe(1);
+      expect(reversed.stderr).toContain("Use either --update or --archive, not both.");
+
+      // Neither invocation may archive the goal as a side effect.
+      const after = await runCli(["status"], { cwd: root, home });
+      expect(after.code).toBe(0);
+      expect(after.stdout).not.toContain("run koan hello to start a new goal");
+    });
+  });
+
+  it("status --update keeps a trailing --archive token as text and does not archive", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["status", "--update", "Parser", "done", "--archive"], {
+        cwd: root,
+        home
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Status updated.");
+      expect(result.stdout).not.toContain("Archived");
+
+      const statusDoc = await readFile(join(root, "koan/status.md"), "utf8");
+      expect(managedSection(statusDoc, "current-status")).toContain("Parser done --archive");
+
+      const after = await runCli(["status"], { cwd: root, home });
+      expect(after.code).toBe(0);
+      expect(after.stdout).not.toContain("run koan hello to start a new goal");
+      expect(after.stdout).toContain("Next action: answer the");
+    });
+  });
+
+  it("hello rejects unknown leading flags without writing state", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const result = await runCli(["hello", "--reset-profil"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan hello: --reset-profil");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan"))).toBe(false);
+      expect(await fileExists(join(root, ".koan"))).toBe(false);
+      expect(await fileExists(join(home, ".koan/profile.json"))).toBe(false);
+    });
+  });
+
+  it("status rejects unknown leading flags", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["status", "--archve"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unknown flag for koan status: --archve");
+      expect(result.stderr).toContain("Usage: koan");
+    });
+  });
+
+  it("answer keeps tokens that look like flags inside free text", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["answer", "scope", "use", "--interactive", "mode"], {
+        cwd: root,
+        home
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("Recorded scope.");
+
+      const state = JSON.parse(await readFile(join(root, ".koan/session-state.json"), "utf8"));
+      const scopeAnswer = state.answers
+        .filter((entry: { axis: string; answer: string }) => entry.axis === "scope")
+        .at(-1);
+      expect(scopeAnswer?.answer).toBe("use --interactive mode");
+    });
+  });
+});
+
+describe("prompter", () => {
+  it("settles concurrent asks in FIFO order and resolves all pending on close", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.resume();
+    const prompter = createPrompter(input, output);
+
+    const first = prompter.ask("first? ");
+    const second = prompter.ask("second? ");
+    input.write("one\ntwo\n");
+    expect(await first).toBe("one");
+    expect(await second).toBe("two");
+
+    const third = prompter.ask("third? ");
+    const fourth = prompter.ask("fourth? ");
+    input.end();
+    expect(await third).toBeNull();
+    expect(await fourth).toBeNull();
+    prompter.close();
   });
 });

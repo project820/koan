@@ -126,12 +126,19 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
 
   if (result.resumed && result.lastAnswer) {
     console.log(`Last answer (${result.lastAnswer.axis}): ${result.lastAnswer.answer}`);
-    const choice = await prompt.ask("Resume: [c]ontinue, [r]evise last answer, [s]top? ");
-    if (choice === null || choice === "s") {
+    let resumeChoice: "continue" | "revise" | "stop" | null = null;
+    while (resumeChoice === null) {
+      const choice = await prompt.ask("Resume: [c]ontinue, [r]evise last answer, [s]top? ");
+      if (choice === null || choice === "s") resumeChoice = "stop";
+      else if (choice === "r") resumeChoice = "revise";
+      else if (choice === "c" || choice === "") resumeChoice = "continue";
+      else console.log(`Unrecognized choice: ${choice}`);
+    }
+    if (resumeChoice === "stop") {
       console.log("Stopped. Run koan hello to continue.");
       return 0;
     }
-    if (choice === "r") question = getQuestion(result.lastAnswer.axis, profile);
+    if (resumeChoice === "revise") question = getQuestion(result.lastAnswer.axis, profile);
   }
 
   while (question) {
@@ -143,6 +150,7 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
     }
     if (line === "enough") {
       await acceptClarity({ cwd });
+      console.log("Accepted current clarity.");
       break;
     }
     if (line === "") continue;
@@ -158,21 +166,56 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
   return 0;
 }
 
+// Flags are positional: they are only recognized in the leading run of --*
+// tokens. The first token that does not start with -- begins free text, and
+// every later token (even ones starting with --) is text verbatim.
+interface LeadingFlags {
+  flags: string[];
+  text: string[];
+  unknown: string | null;
+}
+
+function parseLeadingFlags(args: string[], known: readonly string[]): LeadingFlags {
+  const flags: string[] = [];
+  let index = 0;
+  while (index < args.length && args[index].startsWith("--")) {
+    const token = args[index];
+    if (!known.includes(token)) return { flags, text: args.slice(index), unknown: token };
+    flags.push(token);
+    index += 1;
+  }
+  return { flags, text: args.slice(index), unknown: null };
+}
+
 async function main(argv: string[]): Promise<number> {
-  const interactive = process.stdin.isTTY === true || argv.includes("--interactive");
-  const [command, ...rest] = argv.filter((arg) => arg !== "--interactive");
+  const [command, ...rest] = argv;
   const cwd = process.cwd();
   const homeDir = process.env.HOME ?? homedir();
 
   if (command === "hello") {
-    if (rest.includes("--profile")) {
+    const parsed = parseLeadingFlags(rest, [
+      "--interactive",
+      "--profile",
+      "--reset-profile",
+      "--yes",
+      "--setup"
+    ]);
+    if (parsed.unknown !== null) {
+      console.error(`Unknown flag for koan hello: ${parsed.unknown}`);
+      console.error(usage());
+      return 1;
+    }
+    const flags = parsed.flags;
+    const interactive = process.stdin.isTTY === true || flags.includes("--interactive");
+
+    if (flags.includes("--profile")) {
       const profile = await loadProfile(homeDir);
       console.log(JSON.stringify(profile ?? defaultProfile(), null, 2));
       return 0;
     }
 
-    if (rest.includes("--reset-profile")) {
-      if (!rest.includes("--yes")) {
+    if (flags.includes("--reset-profile")) {
+      if (!flags.includes("--yes")) {
         if (process.stdin.isTTY !== true) {
           console.error("Refusing to reset the profile without --yes in non-interactive mode.");
           return 1;
@@ -185,7 +228,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
-    if (rest.includes("--setup")) {
+    if (flags.includes("--setup")) {
       await runProfileSetup(getPrompter(), homeDir);
       return 0;
     }
@@ -201,17 +244,29 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "status") {
-    if (rest.includes("--archive")) {
+    const parsed = parseLeadingFlags(rest, ["--archive", "--update"]);
+    if (parsed.unknown !== null) {
+      console.error(`Unknown flag for koan status: ${parsed.unknown}`);
+      console.error(usage());
+      return 1;
+    }
+    const wantsArchive = parsed.flags.includes("--archive");
+    const wantsUpdate = parsed.flags.includes("--update");
+    if (wantsArchive && wantsUpdate) {
+      console.error("Use either --update or --archive, not both.");
+      return 1;
+    }
+
+    if (wantsArchive) {
       const result = await archive({ cwd });
       console.log(`Archived ${result.archivedGoalId}.`);
       return 0;
     }
 
-    const updateIndex = rest.indexOf("--update");
-    if (updateIndex !== -1) {
-      let update = rest.slice(updateIndex + 1).join(" ").trim();
+    if (wantsUpdate) {
+      let update = parsed.text.join(" ").trim();
       if (!update) {
-        if (!interactive) {
+        if (process.stdin.isTTY !== true) {
           console.error("Usage: koan status --update <text>");
           return 1;
         }

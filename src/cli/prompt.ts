@@ -14,12 +14,13 @@ export function createPrompter(
   const rl = createInterface({ input, output });
   const lines: string[] = [];
   let closed = false;
-  let pending: ((line: string | null) => void) | null = null;
+  // FIFO queue so concurrent asks each get their own line instead of a later
+  // ask overwriting an earlier resolver (which would leave it forever pending).
+  const pending: Array<(line: string | null) => void> = [];
 
   rl.on("line", (line) => {
-    if (pending) {
-      const resolve = pending;
-      pending = null;
+    const resolve = pending.shift();
+    if (resolve) {
       resolve(line.trim());
     } else {
       lines.push(line);
@@ -28,11 +29,8 @@ export function createPrompter(
 
   rl.on("close", () => {
     closed = true;
-    if (pending) {
-      const resolve = pending;
-      pending = null;
-      resolve(null);
-    }
+    const waiting = pending.splice(0, pending.length);
+    for (const resolve of waiting) resolve(null);
   });
 
   return {
@@ -49,7 +47,7 @@ export function createPrompter(
       rl.setPrompt(question);
       rl.prompt();
       return new Promise((resolve) => {
-        pending = resolve;
+        pending.push(resolve);
       });
     },
     close(): void {
