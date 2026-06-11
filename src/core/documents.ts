@@ -32,6 +32,15 @@ export function replaceManagedRegion(input: string, name: string, content: strin
   return `${prefix}${block}\n`;
 }
 
+export function readManagedSection(text: string, name: string): string | null {
+  const startMarker = managedStart(name);
+  const endMarker = managedEnd(name);
+  const start = text.indexOf(startMarker);
+  const end = text.indexOf(endMarker);
+  if (start < 0 || end <= start) return null;
+  return text.slice(start + startMarker.length, end).trim();
+}
+
 export function appendLogEntry(input: string, source: string, content: string, isoDate = new Date().toISOString()): string {
   const entry = [`## ${isoDate} — ${source}`, "", content.trimEnd(), ""].join("\n");
   return `${input.trimEnd()}\n\n${entry}`;

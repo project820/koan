@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CORE_DOCUMENTS, LAZY_DOCUMENTS, managedEnd, managedStart } from "./constants.js";
+import { CORE_DOCUMENTS, LAZY_DOCUMENTS } from "./constants.js";
+import { readManagedSection } from "./documents.js";
 import {
   DEFAULT_ACTIVE_GOAL_PLACEHOLDER,
   DEFAULT_PLAN_PLACEHOLDER,
@@ -27,15 +28,6 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-function managedSection(text: string, name: string): string | null {
-  const startMarker = managedStart(name);
-  const endMarker = managedEnd(name);
-  const start = text.indexOf(startMarker);
-  const end = text.indexOf(endMarker);
-  if (start < 0 || end <= start) return null;
-  return text.slice(start + startMarker.length, end).trim();
-}
-
 function sectionHasContent(section: string | null, placeholder: string): boolean {
   return section !== null && section.length > 0 && !section.startsWith(placeholder);
 }
@@ -60,7 +52,7 @@ export async function reconstructFromDocuments(
   };
 
   const goalText = await readFile(goalPath, "utf8");
-  if (sectionHasContent(managedSection(goalText, "active-goal"), DEFAULT_ACTIVE_GOAL_PLACEHOLDER)) {
+  if (sectionHasContent(readManagedSection(goalText, "active-goal"), DEFAULT_ACTIVE_GOAL_PLACEHOLDER)) {
     grant("purpose", CORE_DOCUMENTS.goal);
     grant("current_goal", CORE_DOCUMENTS.goal);
   }
@@ -68,7 +60,7 @@ export async function reconstructFromDocuments(
   const planPath = join(projectRoot, CORE_DOCUMENTS.plan);
   if (await exists(planPath)) {
     const planText = await readFile(planPath, "utf8");
-    if (sectionHasContent(managedSection(planText, "implementation-plan"), DEFAULT_PLAN_PLACEHOLDER)) {
+    if (sectionHasContent(readManagedSection(planText, "implementation-plan"), DEFAULT_PLAN_PLACEHOLDER)) {
       grant("implementation_plan", CORE_DOCUMENTS.plan);
     }
   }
@@ -76,7 +68,7 @@ export async function reconstructFromDocuments(
   const statusPath = join(projectRoot, CORE_DOCUMENTS.status);
   if (await exists(statusPath)) {
     const statusText = await readFile(statusPath, "utf8");
-    if (sectionHasContent(managedSection(statusText, "current-status"), DEFAULT_STATUS_PLACEHOLDER)) {
+    if (sectionHasContent(readManagedSection(statusText, "current-status"), DEFAULT_STATUS_PLACEHOLDER)) {
       grant("handoff_readiness", CORE_DOCUMENTS.status);
     }
   }

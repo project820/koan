@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { acceptClarity, recordAnswer } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
-import { hello, status, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
+import { hello, status, updateStatus, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
 import { STATE_FILES } from "../src/core/constants.js";
 import { replaceManagedRegion } from "../src/core/documents.js";
 import { getProfilePath } from "../src/core/profile.js";
@@ -346,6 +346,126 @@ describe("core commands", () => {
       expect(resumed.resumed).toBe(true);
       expect(resumed.converged).toBe(true);
       expect(resumed.nextQuestion).toBeNull();
+    });
+  });
+
+  it("updateStatus writes status and handoff regions and bumps session state", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const isoDate = "2026-06-11T00:00:00.000Z";
+      const result = await updateStatus({ cwd: root, update: "  Implemented the parser.  ", isoDate });
+      expect(result.projectRoot).toBe(root);
+
+      const statusDoc = await readFile(join(root, "koan/status.md"), "utf8");
+      expect(statusDoc).toContain('name="current-status"');
+      expect(statusDoc).toContain("Implemented the parser.");
+      expect(statusDoc).not.toContain("No status recorded yet.");
+
+      const handoffDoc = await readFile(join(root, "koan/handoff.md"), "utf8");
+      expect(handoffDoc).toContain("# Handoff");
+      expect(handoffDoc).toContain('name="latest-status"');
+      expect(handoffDoc).toContain("Implemented the parser.");
+      expect(handoffDoc).toContain(`(Updated ${isoDate} via koan status)`);
+
+      const state = JSON.parse(await readFile(join(root, STATE_FILES.sessionState), "utf8"));
+      expect(state.updatedAt).toBe(isoDate);
+
+      const log = await loadCommandLog(root);
+      expect(log.entries.filter((entry) => entry.command === "koan status")).toHaveLength(1);
+      expect(log.entries.at(-1)?.summary).toBe("Recorded a status update.");
+    });
+  });
+
+  it("updateStatus without a session throws", async () => {
+    await withTempProject(async (root) => {
+      await expect(updateStatus({ cwd: root, update: "Anything." })).rejects.toThrow(
+        "No active Koan session. Run koan hello first."
+      );
+    });
+  });
+
+  it("updateStatus rejects empty update text", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await expect(updateStatus({ cwd: root, update: "   " })).rejects.toThrow(
+        "Status update text is required."
+      );
+    });
+  });
+
+  it("status warns when session state is stale", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const statePath = join(root, STATE_FILES.sessionState);
+      const state = JSON.parse(await readFile(statePath, "utf8"));
+      state.updatedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+      await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+
+      const result = await status({ cwd: root });
+      expect(result.staleWarnings).toContain(`session state is stale (last updated ${state.updatedAt})`);
+      expect(result.summary).toContain("Warnings:");
+      expect(result.summary).toContain(`- session state is stale (last updated ${state.updatedAt})`);
+      expect(result.didWrite).toBe(false);
+    });
+  });
+
+  it("status warns when recorded answers are not crystallized", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Keep agents aligned." });
+      const result = await status({ cwd: root });
+      expect(result.staleWarnings).toContain("recorded answers are not crystallized yet (run koan crystallize)");
+      expect(result.summary).toContain("- recorded answers are not crystallized yet (run koan crystallize)");
+    });
+  });
+
+  it("status reports no warnings on a fresh session", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const result = await status({ cwd: root });
+      expect(result.staleWarnings).toEqual([]);
+      expect(result.summary).not.toContain("Warnings:");
+    });
+  });
+
+  it("brightIdea defaults to follow-up and records the classification", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const result = await brightIdea({ cwd: root, idea: "Add a TUI later." });
+      expect(result.classification).toBe("follow-up");
+      expect(result.recommendation).toBe("Keep the current plan; revisit this after the active goal completes.");
+      const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
+      expect(ideas).toContain("Classification: follow-up");
+      expect(ideas).toContain("Add a TUI later.");
+    });
+  });
+
+  it("brightIdea records a custom classification with its recommendation", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const result = await brightIdea({ cwd: root, idea: "Rewrite everything in Rust.", classification: "reject" });
+      expect(result.classification).toBe("reject");
+      expect(result.recommendation).toBe("Recorded for reference; no action planned.");
+      const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
+      expect(ideas).toContain("Classification: reject");
+      expect(ideas).toContain("Rewrite everything in Rust.");
+    });
+  });
+
+  it("qa includes the active goal section when goal.md is crystallized", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const goalPath = join(root, "koan/goal.md");
+      const goalDoc = await readFile(goalPath, "utf8");
+      await writeFile(
+        goalPath,
+        replaceManagedRegion(goalDoc, "active-goal", "Ship the Koan MVP CLI."),
+        "utf8"
+      );
+      await qa({ cwd: root });
+      const text = await readFile(join(root, "koan/qa.md"), "utf8");
+      expect(text).toContain("Active Goal Under Review");
+      expect(text).toContain("Ship the Koan MVP CLI.");
     });
   });
 });
