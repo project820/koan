@@ -93,4 +93,26 @@ describe("recordAnswer", () => {
       expect(state?.answers).toHaveLength(AmbiguityAxisSchema.options.length);
     });
   });
+
+  it("rejects non-finite or out-of-range clarity", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await expect(
+        recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "x", clarity: Number.NaN })
+      ).rejects.toThrow("finite number");
+      await expect(
+        recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "x", clarity: 1.5 })
+      ).rejects.toThrow("finite number");
+    });
+  });
+
+  it("empty answers do not append empty evidence", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const result = await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "   " });
+      const axis = result.ledger.axes.find((entry) => entry.axis === "purpose");
+      expect(axis?.clarity).toBe(0);
+      expect(axis?.evidence).toEqual([]);
+    });
+  });
 });

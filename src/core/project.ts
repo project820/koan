@@ -11,7 +11,7 @@ import {
 } from "./constants.js";
 import { defaultKoanGitignore } from "./gitPolicy.js";
 import { withFileLock } from "./lock.js";
-import { ProjectConfigSchema, type ProjectConfig } from "./schemas.js";
+import { DEFAULT_CONVERGENCE_THRESHOLD, ProjectConfigSchema, type ProjectConfig } from "./schemas.js";
 
 export interface ProjectInspection {
   projectRoot: string;
@@ -110,6 +110,7 @@ async function patchFile(path: string): Promise<void> {
 
 export const DEFAULT_ACTIVE_GOAL_PLACEHOLDER = "No active goal yet.";
 export const DEFAULT_PLAN_PLACEHOLDER = "No implementation plan recorded yet.";
+export const DEFAULT_STATUS_PLACEHOLDER = "No status recorded yet.";
 
 export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig | null> {
   try {
@@ -128,7 +129,7 @@ export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
 
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `goal.md`, `status.md`, and `plan.md` first.\n");
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), `# Goal\n\n## Active Goal\n\n<!-- koan:section:start name="active-goal" -->\n${DEFAULT_ACTIVE_GOAL_PLACEHOLDER}\n<!-- koan:section:end name="active-goal" -->\n`);
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), "# Status\n\n<!-- koan:section:start name=\"current-status\" -->\nNo status recorded yet.\n<!-- koan:section:end name=\"current-status\" -->\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), `# Status\n\n<!-- koan:section:start name="current-status" -->\n${DEFAULT_STATUS_PLACEHOLDER}\n<!-- koan:section:end name="current-status" -->\n`);
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), `# Plan\n\n<!-- koan:section:start name="implementation-plan" -->\n${DEFAULT_PLAN_PLACEHOLDER}\n<!-- koan:section:end name="implementation-plan" -->\n`);
     await ensureFile(join(projectRoot, STATE_FILES.gitignore), defaultKoanGitignore());
 
@@ -143,7 +144,7 @@ export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
       strictness: existing?.strictness ?? "advisory",
       experimentalHandoff: existing?.experimentalHandoff ?? false,
       documents: CORE_DOCUMENTS,
-      settings: existing?.settings ?? { convergenceThreshold: 0.7 }
+      settings: existing?.settings ?? { convergenceThreshold: DEFAULT_CONVERGENCE_THRESHOLD }
     };
     await writeFile(join(projectRoot, STATE_FILES.project), `${JSON.stringify(config, null, 2)}\n`, "utf8");
     return config;

@@ -1,7 +1,11 @@
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS, managedEnd, managedStart } from "./constants.js";
-import { DEFAULT_ACTIVE_GOAL_PLACEHOLDER, DEFAULT_PLAN_PLACEHOLDER } from "./project.js";
+import {
+  DEFAULT_ACTIVE_GOAL_PLACEHOLDER,
+  DEFAULT_PLAN_PLACEHOLDER,
+  DEFAULT_STATUS_PLACEHOLDER
+} from "./project.js";
 import { createInitialLedger, updateAxisScore } from "./scoring.js";
 import { createSessionState, goalIdFromDate } from "./session.js";
 import type { AmbiguityAxis, AmbiguityLedger, SessionState } from "./schemas.js";
@@ -66,6 +70,14 @@ export async function reconstructFromDocuments(
     const planText = await readFile(planPath, "utf8");
     if (sectionHasContent(managedSection(planText, "implementation-plan"), DEFAULT_PLAN_PLACEHOLDER)) {
       grant("implementation_plan", CORE_DOCUMENTS.plan);
+    }
+  }
+
+  const statusPath = join(projectRoot, CORE_DOCUMENTS.status);
+  if (await exists(statusPath)) {
+    const statusText = await readFile(statusPath, "utf8");
+    if (sectionHasContent(managedSection(statusText, "current-status"), DEFAULT_STATUS_PLACEHOLDER)) {
+      grant("handoff_readiness", CORE_DOCUMENTS.status);
     }
   }
 

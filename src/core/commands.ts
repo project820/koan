@@ -9,7 +9,13 @@ import { buildQaChecklist } from "./qa.js";
 import { defaultProfile, loadProfile, saveProfile } from "./profile.js";
 import { getQuestion, type KoanQuestion } from "./questions.js";
 import { reconstructFromDocuments } from "./reconstruct.js";
-import type { AmbiguityAxis, AmbiguityLedger, AnswerRecord, SessionState } from "./schemas.js";
+import {
+  DEFAULT_CONVERGENCE_THRESHOLD,
+  type AmbiguityAxis,
+  type AmbiguityLedger,
+  type AnswerRecord,
+  type SessionState
+} from "./schemas.js";
 import { createInitialLedger, isConverged, loadLedger, selectMostUnclearAxis, unresolvedAxes } from "./scoring.js";
 import { archiveGoal, createSessionState, goalIdFromDate, loadSessionState } from "./session.js";
 
@@ -33,17 +39,23 @@ export async function hello(input: { cwd: string; homeDir: string }): Promise<He
   let state: SessionState;
   let ledger: AmbiguityLedger;
   let reconstructed = false;
+  let resumed = false;
 
-  if (existing) {
+  if (existing && existing.activeGoalId && existing.phase !== "archived") {
     const stored = await loadLedger(config.projectRoot);
     state = existing;
     ledger =
       stored && stored.goalId === existing.activeGoalId
         ? stored
-        : createInitialLedger(existing.activeGoalId ?? goalIdFromDate());
-  } else {
-    const recovered = await reconstructFromDocuments(config.projectRoot);
-    if (recovered && recovered.sources.length > 0) {
+        : createInitialLedger(existing.activeGoalId);
+    resumed = true;
+  } else if (!existing) {
+    const survivingLedger = await loadLedger(config.projectRoot);
+    const recovered = survivingLedger ? null : await reconstructFromDocuments(config.projectRoot);
+    if (survivingLedger) {
+      state = createSessionState(survivingLedger.goalId);
+      ledger = survivingLedger;
+    } else if (recovered && recovered.sources.length > 0) {
       state = recovered.state;
       ledger = recovered.ledger;
       reconstructed = true;
@@ -52,6 +64,10 @@ export async function hello(input: { cwd: string; homeDir: string }): Promise<He
       state = createSessionState(goalId);
       ledger = createInitialLedger(goalId);
     }
+  } else {
+    const goalId = goalIdFromDate();
+    state = createSessionState(goalId);
+    ledger = createInitialLedger(goalId);
   }
 
   await executeWritePlan(
@@ -70,7 +86,7 @@ export async function hello(input: { cwd: string; homeDir: string }): Promise<He
   const converged = isConverged(ledger, threshold);
   return {
     projectRoot: config.projectRoot,
-    resumed: existing !== null,
+    resumed,
     activeGoalId: state.activeGoalId,
     lastAnswer: state.answers.at(-1) ?? null,
     unresolved: unresolvedAxes(ledger, threshold),
@@ -88,12 +104,17 @@ export async function status(
   const current = await readFile(join(projectRoot, CORE_DOCUMENTS.status), "utf8").catch(() => "# Status\n");
   const session = await loadSessionState(projectRoot);
   const ledger = await loadLedger(projectRoot);
-  const threshold = (await loadProjectConfig(projectRoot))?.settings.convergenceThreshold ?? 0.7;
+  const threshold = (await loadProjectConfig(projectRoot))?.settings.convergenceThreshold ?? DEFAULT_CONVERGENCE_THRESHOLD;
 
   let nextAction: string;
   if (!session) {
     nextAction = "run koan hello";
-  } else if ((ledger !== null && isConverged(ledger, threshold)) || session.phase === "ready" || session.phase === "archived") {
+  } else if (session.phase === "archived" || !session.activeGoalId) {
+    nextAction = "run koan hello to start a new goal";
+  } else if (
+    session.phase === "ready" ||
+    (ledger !== null && ledger.goalId === session.activeGoalId && isConverged(ledger, threshold))
+  ) {
     nextAction = "archive the completed goal (koan archive)";
   } else if (!ledger) {
     nextAction = "run koan hello";

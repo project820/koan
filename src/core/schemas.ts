@@ -43,9 +43,11 @@ export const UserProfileSchema = z.object({
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;
 
+export const DEFAULT_CONVERGENCE_THRESHOLD = 0.7;
+
 export const ProjectSettingsSchema = z
   .object({ convergenceThreshold: z.number().min(0).max(1) })
-  .default({ convergenceThreshold: 0.7 });
+  .default({ convergenceThreshold: DEFAULT_CONVERGENCE_THRESHOLD });
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
 
 export const ProjectConfigSchema = z.object({

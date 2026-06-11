@@ -37,7 +37,7 @@ export function updateAxisScore(
         ? {
             ...entry,
             clarity: Math.max(0, Math.min(1, clarity)),
-            evidence: [...entry.evidence, evidence],
+            evidence: evidence ? [...entry.evidence, evidence] : entry.evidence,
             updatedAt: isoDate
           }
         : entry

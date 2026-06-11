@@ -1,7 +1,7 @@
 import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { recordAnswer } from "../src/core/answers.js";
+import { acceptClarity, recordAnswer } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
 import { hello, status, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
 import { STATE_FILES } from "../src/core/constants.js";
@@ -188,6 +188,7 @@ describe("core commands", () => {
         "utf8"
       );
       await rm(join(root, STATE_FILES.sessionState));
+      await rm(join(root, STATE_FILES.ambiguityLedger));
 
       const result = await hello({ cwd: root, homeDir: root });
       expect(result.resumed).toBe(false);
@@ -208,7 +209,7 @@ describe("core commands", () => {
       expect(log.entries.at(-1)?.command).toBe("koan archive");
 
       const after = await status({ cwd: root });
-      expect(after.nextAction).toMatch(/koan (hello|archive)/);
+      expect(after.nextAction).toBe("run koan hello to start a new goal");
     });
   });
 
@@ -226,6 +227,70 @@ describe("core commands", () => {
       expect(result.nextAction).toContain("axes unresolved");
       expect(result.summary).toContain(`Next action: ${result.nextAction}`);
       expect(result.didWrite).toBe(false);
+    });
+  });
+
+  it("hello after archive rotates to a fresh goal", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Old goal purpose." });
+      await archive({ cwd: root });
+
+      const second = await hello({ cwd: root, homeDir: root });
+      expect(second.resumed).toBe(false);
+      expect(second.activeGoalId).not.toBeNull();
+      expect(second.activeGoalId).not.toBe(first.activeGoalId);
+      expect(second.lastAnswer).toBeNull();
+
+      const one = await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "New purpose." });
+      const two = await recordAnswer({ cwd: root, homeDir: root, axis: "target_users", answer: "New users." });
+      expect(two.ledger.goalId).toBe(one.ledger.goalId);
+      expect(two.ledger.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0.8);
+      expect(two.ledger.axes.find((entry) => entry.axis === "target_users")?.clarity).toBe(0.8);
+    });
+  });
+
+  it("recordAnswer after archive throws until a new goal starts", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await archive({ cwd: root });
+      await expect(
+        recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Too late." })
+      ).rejects.toThrow("No active goal");
+    });
+  });
+
+  it("honors a non-default convergence threshold end to end", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      const configPath = join(root, ".koan/project.json");
+      const config = JSON.parse(await readFile(configPath, "utf8"));
+      config.settings = { convergenceThreshold: 0.9 };
+      await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+      const axes = [
+        "purpose", "target_users", "current_goal", "scope", "non_goals", "constraints",
+        "success_criteria", "philosophical_intent", "implementation_plan", "qa_criteria",
+        "handoff_readiness"
+      ] as const;
+      let last;
+      for (const axis of axes) {
+        last = await recordAnswer({ cwd: root, homeDir: root, axis, answer: `Answer for ${axis}.` });
+      }
+      expect(last?.converged).toBe(false);
+      expect(last?.unresolved).toHaveLength(11);
+      expect((await status({ cwd: root })).nextAction).toContain("axes unresolved");
+    });
+  });
+
+  it("acceptClarity marks the session ready and status recommends archival", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await acceptClarity({ cwd: root });
+      const result = await status({ cwd: root });
+      expect(result.nextAction).toBe("archive the completed goal (koan archive)");
+      const log = await loadCommandLog(root);
+      expect(log.entries.at(-1)?.command).toBe("koan enough");
     });
   });
 });
