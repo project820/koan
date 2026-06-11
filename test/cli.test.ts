@@ -380,7 +380,7 @@ describe("CLI contract", () => {
 
       const statusResult = await runCli(["status"], { cwd: root, home });
       expect(statusResult.code).toBe(0);
-      expect(statusResult.stdout).toContain("Next action: archive the completed goal");
+      expect(statusResult.stdout).toContain("Next action: archive the completed goal (koan status --archive)");
     });
   });
 

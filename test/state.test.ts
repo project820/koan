@@ -116,7 +116,8 @@ describe("mcp cache", () => {
           axis: "purpose",
           questionId: "purpose-1",
           askedAt: "2026-06-01T00:00:00.000Z"
-        }
+        },
+        rawIntent: null
       };
       await saveMcpCache(root, cache);
       expect(await loadMcpCache(root)).toEqual(cache);
@@ -125,11 +126,11 @@ describe("mcp cache", () => {
 
   it("recovers an empty cache when missing or corrupt", async () => {
     await withTempProject(async (root) => {
-      expect(await loadMcpCache(root)).toEqual({ version: 1, lastQuestion: null });
+      expect(await loadMcpCache(root)).toEqual({ version: 1, lastQuestion: null, rawIntent: null });
 
       await mkdir(join(root, KOAN_STATE_DIR), { recursive: true });
       await writeFile(join(root, STATE_FILES.mcpCache), "{not json", "utf8");
-      expect(await loadMcpCache(root)).toEqual({ version: 1, lastQuestion: null });
+      expect(await loadMcpCache(root)).toEqual({ version: 1, lastQuestion: null, rawIntent: null });
     });
   });
 });

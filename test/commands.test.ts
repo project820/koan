@@ -289,7 +289,7 @@ describe("core commands", () => {
       await hello({ cwd: root, homeDir: root });
       await acceptClarity({ cwd: root });
       const result = await status({ cwd: root });
-      expect(result.nextAction).toBe("archive the completed goal (koan archive)");
+      expect(result.nextAction).toBe("archive the completed goal (koan status --archive)");
       const log = await loadCommandLog(root);
       expect(log.entries.at(-1)?.command).toBe("koan enough");
     });
@@ -511,6 +511,47 @@ describe("core commands", () => {
       const text = await readFile(join(root, "koan/handoff.md"), "utf8");
       expect(text).toContain("Continue with rendering.");
       expect(readManagedSection(text, "latest-status")).toContain("Parser done.");
+    });
+  });
+
+  it("qa preserves user-authored text outside managed regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await qa({ cwd: root });
+      const qaPath = join(root, "koan/qa.md");
+      const generated = await readFile(qaPath, "utf8");
+      await writeFile(
+        qaPath,
+        `Reviewer preamble outside any region.\n\n${generated}\nReviewer appendix outside any region.\n`,
+        "utf8"
+      );
+      await qa({ cwd: root, implementationSummary: "Second pass summary." });
+      const text = await readFile(qaPath, "utf8");
+      expect(text).toContain("Reviewer preamble outside any region.");
+      expect(text).toContain("Reviewer appendix outside any region.");
+      expect(text).toContain("Second pass summary.");
+      expect(text.match(/koan:section:start name="qa-checklist"/g)).toHaveLength(1);
+    });
+  });
+
+  it("handoff preserves user-authored text outside managed regions", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await handoff({ cwd: root, summary: "First handoff." });
+      const handoffPath = join(root, "koan/handoff.md");
+      const generated = await readFile(handoffPath, "utf8");
+      await writeFile(
+        handoffPath,
+        `Operator note outside any region.\n\n${generated}\nOperator appendix outside any region.\n`,
+        "utf8"
+      );
+      await handoff({ cwd: root, summary: "Second handoff." });
+      const text = await readFile(handoffPath, "utf8");
+      expect(text).toContain("Operator note outside any region.");
+      expect(text).toContain("Operator appendix outside any region.");
+      expect(text).toContain("Second handoff.");
+      expect(text).not.toContain("First handoff.");
+      expect(text.match(/koan:section:start name="handoff-document"/g)).toHaveLength(1);
     });
   });
 
