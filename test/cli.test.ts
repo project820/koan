@@ -656,6 +656,123 @@ describe("CLI contract", () => {
     });
   });
 
+  it("enough rejects unexpected positional operands without touching session state", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const statePath = join(root, ".koan/session-state.json");
+      const before = await readFile(statePath);
+
+      const result = await runCli(["enough", "extra"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unexpected argument for koan enough: extra");
+      expect(result.stderr).toContain("Usage: koan");
+
+      const after = await readFile(statePath);
+      expect(after.equals(before)).toBe(true);
+    });
+  });
+
+  it("crystallize rejects unexpected positional operands without writing documents", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Positional", "guard", "answer"], { cwd: root, home });
+
+      const goalPath = join(root, "koan/goal.md");
+      const before = await readFile(goalPath, "utf8");
+
+      const result = await runCli(["crystallize", "extra"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unexpected argument for koan crystallize: extra");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await readFile(goalPath, "utf8")).toBe(before);
+    });
+  });
+
+  it("crystallize --dry-run rejects unexpected positional operands", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["crystallize", "--dry-run", "extra"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unexpected argument for koan crystallize: extra");
+      expect(result.stderr).toContain("Usage: koan");
+    });
+  });
+
+  it("qa rejects unexpected positional operands without creating the checklist", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const result = await runCli(["qa", "extra"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unexpected argument for koan qa: extra");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan/qa.md"))).toBe(false);
+    });
+  });
+
+  it("status rejects positional operands unless they follow --update", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+
+      const bare = await runCli(["status", "extra"], { cwd: root, home });
+      expect(bare.code).toBe(1);
+      expect(bare.stderr).toContain("Unexpected argument for koan status: extra");
+      expect(bare.stderr).toContain("Usage: koan");
+
+      const archive = await runCli(["status", "--archive", "extra"], { cwd: root, home });
+      expect(archive.code).toBe(1);
+      expect(archive.stderr).toContain("Unexpected argument for koan status: extra");
+
+      // Neither invocation may archive the goal as a side effect.
+      const after = await runCli(["status"], { cwd: root, home });
+      expect(after.code).toBe(0);
+      expect(after.stdout).toContain("Next action: answer the");
+    });
+  });
+
+  it("hello rejects unexpected positional operands without writing state", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const result = await runCli(["hello", "extra"], { cwd: root, home });
+
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain("Unexpected argument for koan hello: extra");
+      expect(result.stderr).toContain("Usage: koan");
+      expect(await fileExists(join(root, "koan"))).toBe(false);
+      expect(await fileExists(join(root, ".koan"))).toBe(false);
+      expect(await fileExists(join(home, ".koan/profile.json"))).toBe(false);
+    });
+  });
+
+  it("hello --yes without --reset-profile is rejected", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      for (const args of [
+        ["hello", "--yes"],
+        ["hello", "--setup", "--yes"]
+      ]) {
+        const result = await runCli(args, { cwd: root, home });
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("--yes requires --reset-profile.");
+      }
+      expect(await fileExists(join(home, ".koan/profile.json"))).toBe(false);
+      expect(await fileExists(join(root, "koan"))).toBe(false);
+    });
+  });
+
   it("hello rejects combined mode flags", async () => {
     await withTempProject(async (root) => {
       const home = await makeHome(root);

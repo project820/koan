@@ -32,6 +32,45 @@ const LANGUAGE_OPTIONS = ["ko", "en", "mixed"] as const;
 const OUTPUT_USE_OPTIONS = ["self_implementation", "agent_execution", "team_sharing", "learning"] as const;
 const LEARNING_MODE_OPTIONS = ["approval_required", "auto_with_review"] as const;
 
+// ---------------------------------------------------------------------------
+// Central argument contract
+//
+// Every command declares its accepted leading flags and positional policy
+// here, and main() funnels each command's raw arguments through
+// parseCommandArgs below. Violations share one error shape — a stderr line
+// plus usage, exit 1 — and are rejected before any state is read or written.
+// ---------------------------------------------------------------------------
+
+type PositionalPolicy =
+  | "none" // any positional operand is rejected
+  | "text" // positionals are the command's free text
+  | "axis-then-text" // first positional is the axis, the rest free text
+  | "none-unless-update-text"; // positionals allowed only as the --update text
+
+interface CommandContract {
+  flags: readonly string[];
+  positionals: PositionalPolicy;
+  /** Flags that are only meaningful when another flag is also present. */
+  requires?: Readonly<Record<string, string>>;
+}
+
+const COMMAND_CONTRACTS = {
+  hello: {
+    flags: ["--interactive", "--setup", "--profile", "--reset-profile", "--yes"],
+    positionals: "none",
+    requires: { "--yes": "--reset-profile" }
+  },
+  status: { flags: ["--update", "--archive"], positionals: "none-unless-update-text" },
+  answer: { flags: [], positionals: "axis-then-text" },
+  enough: { flags: [], positionals: "none" },
+  crystallize: { flags: ["--dry-run"], positionals: "none" },
+  "bright-idea": { flags: ["--classify"], positionals: "text" },
+  qa: { flags: [], positionals: "none" },
+  handoff: { flags: [], positionals: "text" }
+} as const satisfies Record<string, CommandContract>;
+
+type ContractCommand = keyof typeof COMMAND_CONTRACTS;
+
 let prompter: Prompter | null = null;
 
 function getPrompter(): Prompter {
@@ -188,10 +227,40 @@ function parseLeadingFlags(args: string[], known: readonly string[]): LeadingFla
   return { flags, text: args.slice(index), unknown: null };
 }
 
-function rejectUnknownFlag(command: string, token: string): number {
-  console.error(`Unknown flag for koan ${command}: ${token}`);
+interface ParsedArgs {
+  flags: string[];
+  text: string[];
+}
+
+function contractViolation(message: string): null {
+  console.error(message);
   console.error(usage());
-  return 1;
+  return null;
+}
+
+// Shared contract enforcement for every command: unknown leading flags,
+// unexpected positional operands, and flag dependencies are all rejected here
+// (null is returned after printing the error) before any handler runs.
+function parseCommandArgs(command: ContractCommand, args: string[]): ParsedArgs | null {
+  const contract: CommandContract = COMMAND_CONTRACTS[command];
+  const parsed = parseLeadingFlags(args, contract.flags);
+  if (parsed.unknown !== null) {
+    return contractViolation(`Unknown flag for koan ${command}: ${parsed.unknown}`);
+  }
+  const textAllowed =
+    contract.positionals === "text" ||
+    contract.positionals === "axis-then-text" ||
+    (contract.positionals === "none-unless-update-text" && parsed.flags.includes("--update"));
+  if (!textAllowed && parsed.text.length > 0) {
+    return contractViolation(`Unexpected argument for koan ${command}: ${parsed.text[0]}`);
+  }
+  for (const [flag, dependency] of Object.entries(contract.requires ?? {})) {
+    if (parsed.flags.includes(flag) && !parsed.flags.includes(dependency)) {
+      console.error(`${flag} requires ${dependency}.`);
+      return null;
+    }
+  }
+  return { flags: parsed.flags, text: parsed.text };
 }
 
 // hello mode flags select one exclusive behavior; --interactive only applies
@@ -205,14 +274,8 @@ async function main(argv: string[]): Promise<number> {
   const homeDir = process.env.HOME ?? homedir();
 
   if (command === "hello") {
-    const parsed = parseLeadingFlags(rest, [
-      "--interactive",
-      "--profile",
-      "--reset-profile",
-      "--yes",
-      "--setup"
-    ]);
-    if (parsed.unknown !== null) return rejectUnknownFlag("hello", parsed.unknown);
+    const parsed = parseCommandArgs("hello", rest);
+    if (parsed === null) return 1;
     const flags = parsed.flags;
     const modeFlags = HELLO_MODE_FLAGS.filter((flag) => flags.includes(flag));
     if (modeFlags.length > 1 || (modeFlags.length > 0 && flags.includes("--interactive"))) {
@@ -257,8 +320,8 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "status") {
-    const parsed = parseLeadingFlags(rest, ["--archive", "--update"]);
-    if (parsed.unknown !== null) return rejectUnknownFlag("status", parsed.unknown);
+    const parsed = parseCommandArgs("status", rest);
+    if (parsed === null) return 1;
     const wantsArchive = parsed.flags.includes("--archive");
     const wantsUpdate = parsed.flags.includes("--update");
     if (wantsArchive && wantsUpdate) {
@@ -294,8 +357,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "answer") {
     // No leading flags: the axis is the first positional and everything after
     // it is free text verbatim (flag-like tokens included).
-    const parsed = parseLeadingFlags(rest, []);
-    if (parsed.unknown !== null) return rejectUnknownFlag("answer", parsed.unknown);
+    const parsed = parseCommandArgs("answer", rest);
+    if (parsed === null) return 1;
     const [axis, ...answerWords] = parsed.text;
     const answer = answerWords.join(" ").trim();
     if (!axis || !answer) {
@@ -308,16 +371,15 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "enough") {
-    const parsed = parseLeadingFlags(rest, []);
-    if (parsed.unknown !== null) return rejectUnknownFlag("enough", parsed.unknown);
+    if (parseCommandArgs("enough", rest) === null) return 1;
     await acceptClarity({ cwd });
     console.log("Accepted current clarity.");
     return 0;
   }
 
   if (command === "crystallize") {
-    const parsed = parseLeadingFlags(rest, ["--dry-run"]);
-    if (parsed.unknown !== null) return rejectUnknownFlag("crystallize", parsed.unknown);
+    const parsed = parseCommandArgs("crystallize", rest);
+    if (parsed === null) return 1;
     const dryRun = parsed.flags.includes("--dry-run");
     const result = await crystallize({ cwd, homeDir, dryRun });
     if (dryRun) {
@@ -331,8 +393,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "bright-idea") {
     // --classify is the only leading flag; its value is the first non-flag
     // token, and everything after that value is idea text verbatim.
-    const parsed = parseLeadingFlags(rest, ["--classify"]);
-    if (parsed.unknown !== null) return rejectUnknownFlag("bright-idea", parsed.unknown);
+    const parsed = parseCommandArgs("bright-idea", rest);
+    if (parsed === null) return 1;
     let classification: BrightIdeaClassification | undefined;
     let ideaWords = parsed.text;
     if (parsed.flags.includes("--classify")) {
@@ -355,8 +417,7 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "qa") {
-    const parsed = parseLeadingFlags(rest, []);
-    if (parsed.unknown !== null) return rejectUnknownFlag("qa", parsed.unknown);
+    if (parseCommandArgs("qa", rest) === null) return 1;
     await qa({ cwd });
     console.log("QA checklist ready.");
     return 0;
@@ -366,8 +427,8 @@ async function main(argv: string[]): Promise<number> {
     // No leading flags; the summary is everything after them, verbatim. A
     // summary that itself begins with "--" is therefore unsupported (see
     // usage), but later tokens may look like flags.
-    const parsed = parseLeadingFlags(rest, []);
-    if (parsed.unknown !== null) return rejectUnknownFlag("handoff", parsed.unknown);
+    const parsed = parseCommandArgs("handoff", rest);
+    if (parsed === null) return 1;
     const summary = parsed.text.join(" ").trim();
     if (!summary) {
       console.error("Usage: koan handoff <summary>");
