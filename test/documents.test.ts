@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { withFileLock } from "../src/core/lock.js";
-import { appendLogEntry, executeWritePlan, replaceManagedRegion } from "../src/core/documents.js";
+import { appendLogEntry, executeWritePlan, readManagedSection, replaceManagedRegion } from "../src/core/documents.js";
 import { readText, withTempProject } from "./helpers/fs.js";
 
 describe("documents", () => {
@@ -21,6 +21,31 @@ describe("documents", () => {
     expect(output).toContain("New status");
     expect(output).not.toContain("Old status");
     expect(output).toContain("User outro");
+  });
+
+  it("reads the trimmed content of a managed region", () => {
+    const input = [
+      "Intro",
+      "<!-- koan:section:start name=\"purpose\" -->",
+      "",
+      "  Keep agents aligned.  ",
+      "",
+      "<!-- koan:section:end name=\"purpose\" -->",
+      "Outro"
+    ].join("\n");
+
+    expect(readManagedSection(input, "purpose")).toBe("Keep agents aligned.");
+  });
+
+  it("returns null when managed-region markers are absent or malformed", () => {
+    expect(readManagedSection("# Doc\n\nNo markers here.\n", "purpose")).toBeNull();
+
+    const reversed = [
+      "<!-- koan:section:end name=\"purpose\" -->",
+      "Out of order",
+      "<!-- koan:section:start name=\"purpose\" -->"
+    ].join("\n");
+    expect(readManagedSection(reversed, "purpose")).toBeNull();
   });
 
   it("appends timestamped log entries", () => {
