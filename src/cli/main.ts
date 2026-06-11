@@ -1,46 +1,281 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
-import { brightIdea, handoff, hello, qa, status } from "../core/commands.js";
+import { acceptClarity, recordAnswer } from "../core/answers.js";
+import {
+  archive,
+  brightIdea,
+  handoff,
+  hello,
+  qa,
+  status,
+  updateStatus,
+  type BrightIdeaClassification,
+  type HelloResult
+} from "../core/commands.js";
+import { crystallize } from "../core/crystallize.js";
+import { defaultProfile, loadProfile, resetProfile, saveProfile } from "../core/profile.js";
+import { getQuestion, type KoanQuestion } from "../core/questions.js";
+import { ANSWERED_CLARITY } from "../core/scoring.js";
+import type { AmbiguityAxis } from "../core/schemas.js";
+import { createPrompter, type Prompter } from "./prompt.js";
+
+const BRIGHT_IDEA_CLASSIFICATIONS: readonly BrightIdeaClassification[] = [
+  "clarify",
+  "change-goal",
+  "later-follow-up",
+  "reject"
+];
+
+const DEVELOPMENT_UNDERSTANDING_OPTIONS = ["non_technical", "beginner", "intermediate", "expert"] as const;
+const EXPLANATION_STYLE_OPTIONS = ["short", "example_first", "step_by_step", "technical_ok"] as const;
+const LANGUAGE_OPTIONS = ["ko", "en", "mixed"] as const;
+const OUTPUT_USE_OPTIONS = ["self_implementation", "agent_execution", "team_sharing", "learning"] as const;
+const LEARNING_MODE_OPTIONS = ["approval_required", "auto_with_review"] as const;
+
+let prompter: Prompter | null = null;
+
+function getPrompter(): Prompter {
+  prompter ??= createPrompter();
+  return prompter;
+}
 
 function usage(): string {
   return [
     "Usage: koan <command>",
     "",
     "Commands:",
-    "  hello                 initialize or resume Koan in this project",
-    "  status                show project status without writing by default",
-    "  bright-idea <text>    record a new idea without changing the plan",
-    "  qa                    create or refresh QA checklist",
-    "  handoff <summary>     create document-based handoff"
+    "  hello [--interactive]      initialize or resume Koan; run the question loop",
+    "  hello --setup              run guided profile setup",
+    "  hello --profile            print the global profile (read-only)",
+    "  hello --reset-profile      delete the global profile (--yes skips confirmation)",
+    "  status                     show project status without writing by default",
+    "  status --update <text>     record a status update",
+    "  status --archive           archive the active goal",
+    "  answer <axis> <text>       record an answer for an ambiguity axis",
+    "  enough                     accept current clarity and stop questioning",
+    "  crystallize [--dry-run]    write recorded answers into project documents",
+    "  bright-idea [--classify <type>] <text>",
+    "                             record a new idea without changing the plan",
+    "  qa                         create or refresh QA checklist",
+    "  handoff <summary>          create document-based handoff"
   ].join("\n");
 }
 
+async function runProfileSetup(prompt: Prompter, homeDir: string): Promise<void> {
+  const profile = defaultProfile();
+  let ended = false;
+
+  const choose = async <T extends string>(question: string, options: readonly T[], fallback: T): Promise<T> => {
+    if (ended) return fallback;
+    const line = await prompt.ask(question);
+    if (line === null) {
+      ended = true;
+      return fallback;
+    }
+    if (/^[0-9]+$/.test(line)) return options[Number.parseInt(line, 10) - 1] ?? fallback;
+    return options.find((option) => option === line) ?? fallback;
+  };
+
+  profile.developmentUnderstanding = await choose(
+    "Development understanding [1 non_technical / 2 beginner / 3 intermediate / 4 expert] (2): ",
+    DEVELOPMENT_UNDERSTANDING_OPTIONS,
+    profile.developmentUnderstanding
+  );
+  profile.explanationStyle = await choose(
+    "Explanation style [1 short / 2 example_first / 3 step_by_step / 4 technical_ok] (2): ",
+    EXPLANATION_STYLE_OPTIONS,
+    profile.explanationStyle
+  );
+  profile.language = await choose("Language [1 ko / 2 en / 3 mixed] (1): ", LANGUAGE_OPTIONS, profile.language);
+  profile.outputUse = await choose(
+    "Output use [1 self_implementation / 2 agent_execution / 3 team_sharing / 4 learning] (2): ",
+    OUTPUT_USE_OPTIONS,
+    profile.outputUse
+  );
+  if (!ended) {
+    const background = await prompt.ask("Domain background (free text, empty ok): ");
+    if (background === null) ended = true;
+    else profile.domainBackground = background;
+  }
+  profile.learningMode = await choose(
+    "Learning mode [1 approval_required / 2 auto_with_review] (1): ",
+    LEARNING_MODE_OPTIONS,
+    profile.learningMode
+  );
+
+  await saveProfile(homeDir, profile);
+  console.log("Profile saved.");
+}
+
+interface InteractiveHelloInput {
+  cwd: string;
+  homeDir: string;
+  result: HelloResult;
+  firstRun: boolean;
+  prompt: Prompter;
+}
+
+async function runInteractiveHello(input: InteractiveHelloInput): Promise<number> {
+  const { cwd, homeDir, result, prompt } = input;
+  if (input.firstRun) await runProfileSetup(prompt, homeDir);
+  const profile = (await loadProfile(homeDir)) ?? defaultProfile();
+
+  let question: KoanQuestion | null = result.nextQuestion
+    ? getQuestion(result.nextQuestion.axis, profile)
+    : null;
+
+  if (result.resumed && result.lastAnswer) {
+    console.log(`Last answer (${result.lastAnswer.axis}): ${result.lastAnswer.answer}`);
+    const choice = await prompt.ask("Resume: [c]ontinue, [r]evise last answer, [s]top? ");
+    if (choice === null || choice === "s") {
+      console.log("Stopped. Run koan hello to continue.");
+      return 0;
+    }
+    if (choice === "r") question = getQuestion(result.lastAnswer.axis, profile);
+  }
+
+  while (question) {
+    console.log(question.userFacingQuestion);
+    const line = await prompt.ask("> ");
+    if (line === null || line === "stop" || line === "quit") {
+      console.log("Stopped. Run koan hello to continue.");
+      return 0;
+    }
+    if (line === "enough") {
+      await acceptClarity({ cwd });
+      break;
+    }
+    if (line === "") continue;
+    const recorded = await recordAnswer({ cwd, homeDir, axis: question.axis, answer: line });
+    console.log(`Recorded ${question.axis} (clarity ${ANSWERED_CLARITY}).`);
+    if (recorded.converged) console.log("All axes converged.");
+    question = recorded.nextQuestion;
+  }
+
+  const crystallized = await crystallize({ cwd, homeDir });
+  console.log(`Crystallized ${crystallized.crystallizedAxes.length} axes.`);
+  console.log("Session complete.");
+  return 0;
+}
+
 async function main(argv: string[]): Promise<number> {
-  const [command, ...rest] = argv;
+  const interactive = process.stdin.isTTY === true || argv.includes("--interactive");
+  const [command, ...rest] = argv.filter((arg) => arg !== "--interactive");
   const cwd = process.cwd();
   const homeDir = process.env.HOME ?? homedir();
 
   if (command === "hello") {
+    if (rest.includes("--profile")) {
+      const profile = await loadProfile(homeDir);
+      console.log(JSON.stringify(profile ?? defaultProfile(), null, 2));
+      return 0;
+    }
+
+    if (rest.includes("--reset-profile")) {
+      if (!rest.includes("--yes")) {
+        if (process.stdin.isTTY !== true) {
+          console.error("Refusing to reset the profile without --yes in non-interactive mode.");
+          return 1;
+        }
+        const confirmation = await getPrompter().ask("Delete the global profile? [y/N] ");
+        if (confirmation !== "y" && confirmation !== "yes") return 0;
+      }
+      await resetProfile(homeDir);
+      console.log("Profile reset.");
+      return 0;
+    }
+
+    if (rest.includes("--setup")) {
+      await runProfileSetup(getPrompter(), homeDir);
+      return 0;
+    }
+
+    const hadProfile = (await loadProfile(homeDir)) !== null;
     const result = await hello({ cwd, homeDir });
     console.log(`Koan ready: ${result.projectRoot}`);
-    if (result.nextQuestion) console.log(result.nextQuestion.userFacingQuestion);
-    return 0;
+    if (!interactive) {
+      if (result.nextQuestion) console.log(result.nextQuestion.userFacingQuestion);
+      return 0;
+    }
+    return runInteractiveHello({ cwd, homeDir, result, firstRun: !hadProfile, prompt: getPrompter() });
   }
 
   if (command === "status") {
+    if (rest.includes("--archive")) {
+      const result = await archive({ cwd });
+      console.log(`Archived ${result.archivedGoalId}.`);
+      return 0;
+    }
+
+    const updateIndex = rest.indexOf("--update");
+    if (updateIndex !== -1) {
+      let update = rest.slice(updateIndex + 1).join(" ").trim();
+      if (!update) {
+        if (!interactive) {
+          console.error("Usage: koan status --update <text>");
+          return 1;
+        }
+        update = (await getPrompter().ask("Status update: ")) ?? "";
+      }
+      await updateStatus({ cwd, update });
+      console.log("Status updated.");
+      return 0;
+    }
+
     const result = await status({ cwd });
     console.log(result.summary);
     return 0;
   }
 
+  if (command === "answer") {
+    const [axis, ...answerWords] = rest;
+    const answer = answerWords.join(" ").trim();
+    if (!axis || !answer) {
+      console.error("Usage: koan answer <axis> <text>");
+      return 1;
+    }
+    const result = await recordAnswer({ cwd, homeDir, axis: axis as AmbiguityAxis, answer });
+    console.log(`Recorded ${result.answer.axis}. Next: ${result.nextQuestion?.axis ?? "converged"}.`);
+    return 0;
+  }
+
+  if (command === "enough") {
+    await acceptClarity({ cwd });
+    console.log("Accepted current clarity.");
+    return 0;
+  }
+
+  if (command === "crystallize") {
+    const dryRun = rest.includes("--dry-run");
+    const result = await crystallize({ cwd, homeDir, dryRun });
+    if (dryRun) {
+      console.log(`Dry run: ${result.plan.operations.length} operations planned.`);
+      return 0;
+    }
+    console.log(`Crystallized ${result.crystallizedAxes.length} axes.`);
+    return 0;
+  }
+
   if (command === "bright-idea") {
-    const idea = rest.join(" ").trim();
+    const args = [...rest];
+    let classification: BrightIdeaClassification | undefined;
+    const classifyIndex = args.indexOf("--classify");
+    if (classifyIndex !== -1) {
+      const value = args[classifyIndex + 1];
+      if (!BRIGHT_IDEA_CLASSIFICATIONS.includes(value as BrightIdeaClassification)) {
+        console.error(`Invalid classification: ${value}`);
+        return 1;
+      }
+      classification = value as BrightIdeaClassification;
+      args.splice(classifyIndex, 2);
+    }
+    const idea = args.join(" ").trim();
     if (!idea) {
       console.error("Usage: koan bright-idea <text>");
       return 1;
     }
-    await brightIdea({ cwd, idea });
-    console.log("Bright idea recorded.");
+    const result = await brightIdea({ cwd, idea, classification });
+    console.log(`Bright idea recorded (${result.classification}). ${result.recommendation}`);
     return 0;
   }
 
@@ -72,4 +307,7 @@ main(process.argv.slice(2))
   .catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
+  })
+  .finally(() => {
+    prompter?.close();
   });
