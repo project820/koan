@@ -50,9 +50,13 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export async function archiveGoal(projectRoot: string, goalId: string, log?: CommandLogInput): Promise<void> {
+  const safeGoalId = basename(goalId);
+  if (!safeGoalId || safeGoalId === "." || safeGoalId === "..") {
+    throw new Error(`Invalid goal id: ${goalId}`);
+  }
   await withFileLock(projectRoot, async () => {
     await ensureStateGitignore(projectRoot);
-    const archiveRoot = join(projectRoot, "koan/archive", goalId);
+    const archiveRoot = join(projectRoot, "koan/archive", safeGoalId);
     await mkdir(archiveRoot, { recursive: true });
 
     const files = [
@@ -75,7 +79,7 @@ export async function archiveGoal(projectRoot: string, goalId: string, log?: Com
     const currentGoal = await readFile(goalPath, "utf8").catch(() => "# Goal\n");
     await writeFile(
       goalPath,
-      replaceManagedRegion(currentGoal, "active-goal", `No active goal yet.\n\nArchived goal: ${goalId}`),
+      replaceManagedRegion(currentGoal, "active-goal", `No active goal yet.\n\nArchived goal: ${safeGoalId}`),
       "utf8"
     );
 

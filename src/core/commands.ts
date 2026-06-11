@@ -237,7 +237,7 @@ export async function brightIdea(
 ): Promise<{ classification: BrightIdeaClassification; recommendation: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
   const classification = input.classification ?? "later-follow-up";
-  const entry = `## ${new Date().toISOString()} — koan bright-idea\n\nClassification: ${classification}\n\n${input.idea.trim()}`;
+  const entry = `## ${new Date().toISOString()} — koan bright-idea\n\nClassification: ${classification}\n\n${sanitizeRegionContent(input.idea.trim())}`;
   await executeWritePlan(
     projectRoot,
     {

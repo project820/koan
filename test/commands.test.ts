@@ -574,4 +574,24 @@ describe("core commands", () => {
       expect(readManagedSection(handoffDoc, "latest-status")).toContain("Second update.");
     });
   });
+
+  it("archiveGoal normalizes path-bearing goal ids and rejects traversal", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await archiveGoal(root, "nested/../../escape-attempt");
+      expect(await exists(join(root, "koan/archive/escape-attempt/goal.md"))).toBe(true);
+      expect(await exists(join(root, "escape-attempt"))).toBe(false);
+      await expect(archiveGoal(root, "..")).rejects.toThrow("Invalid goal id");
+    });
+  });
+
+  it("bright idea sanitizes managed-region markers in idea text", async () => {
+    await withTempProject(async (root) => {
+      await hello({ cwd: root, homeDir: root });
+      await brightIdea({ cwd: root, idea: 'Inject <!-- koan:section:start name="x" --> here.' });
+      const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
+      expect(ideas).not.toContain('<!-- koan:section:start name="x" -->');
+      expect(ideas).toContain("Inject");
+    });
+  });
 });
