@@ -321,4 +321,20 @@ describe("core commands", () => {
       expect(result.nextAction).toBe("run koan hello");
     });
   });
+
+  it("archive removes the archived goal's ledger and blocks resurrection", async () => {
+    await withTempProject(async (root) => {
+      const first = await hello({ cwd: root, homeDir: root });
+      await recordAnswer({ cwd: root, homeDir: root, axis: "purpose", answer: "Old goal." });
+      await archive({ cwd: root });
+      expect(await exists(join(root, STATE_FILES.ambiguityLedger))).toBe(false);
+
+      await rm(join(root, STATE_FILES.sessionState));
+      const revived = await hello({ cwd: root, homeDir: root });
+      expect(revived.reconstructed).toBe(false);
+      expect(revived.activeGoalId).not.toBe(first.activeGoalId);
+      const ledger = await loadLedger(root);
+      expect(ledger?.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0);
+    });
+  });
 });

@@ -37,7 +37,7 @@ function managedSection(text: string, name: string): string | null {
 }
 
 function sectionHasContent(section: string | null, placeholder: string): boolean {
-  return section !== null && section.length > 0 && section !== placeholder;
+  return section !== null && section.length > 0 && !section.startsWith(placeholder);
 }
 
 // Best-effort recovery per spec §9.5: when session state is missing but koan/*.md

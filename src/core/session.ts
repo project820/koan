@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { appendCommandLogInLock, type CommandLogInput } from "./commandLog.js";
@@ -78,6 +78,8 @@ export async function archiveGoal(projectRoot: string, goalId: string, log?: Com
       replaceManagedRegion(currentGoal, "active-goal", `No active goal yet.\n\nArchived goal: ${goalId}`),
       "utf8"
     );
+
+    await rm(join(projectRoot, STATE_FILES.ambiguityLedger), { force: true });
 
     const state = await loadSessionState(projectRoot);
     if (state) {

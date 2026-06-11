@@ -147,4 +147,27 @@ describe("reconstructFromDocuments", () => {
       expect(result?.ledger.axes.find((entry) => entry.axis === "handoff_readiness")?.clarity).toBe(0.5);
     });
   });
+
+  it("treats the archived-goal marker as a placeholder", async () => {
+    await withTempProject(async (root) => {
+      await ensureKoanProject(root);
+      const archivedGoal = [
+        "# Goal",
+        "",
+        "## Active Goal",
+        "",
+        '<!-- koan:section:start name="active-goal" -->',
+        "No active goal yet.",
+        "",
+        "Archived goal: goal-2026-06-11T00-00-00-000Z",
+        '<!-- koan:section:end name="active-goal" -->',
+        ""
+      ].join("\n");
+      await writeFile(join(root, "koan/goal.md"), archivedGoal, "utf8");
+
+      const result = await reconstructFromDocuments(root, ISO);
+      expect(result?.sources).not.toContain("koan/goal.md");
+      expect(result?.ledger.axes.find((entry) => entry.axis === "purpose")?.clarity).toBe(0);
+    });
+  });
 });
