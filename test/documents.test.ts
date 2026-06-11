@@ -29,6 +29,30 @@ describe("documents", () => {
     expect(output).toContain("Captured new idea.");
   });
 
+  it("append writes the header only when the file is missing", async () => {
+    await withTempProject(async (root) => {
+      const operation = (content: string) => ({
+        description: "Append entry",
+        operations: [
+          {
+            type: "append" as const,
+            path: "koan/bright-ideas.md",
+            content,
+            headerIfMissing: "# Bright Ideas"
+          }
+        ]
+      });
+      await executeWritePlan(root, operation("## entry one"));
+      await executeWritePlan(root, operation("## entry two"));
+
+      const text = await readText(join(root, "koan/bright-ideas.md"));
+      expect(text.startsWith("# Bright Ideas")).toBe(true);
+      expect(text.match(/# Bright Ideas/g)).toHaveLength(1);
+      expect(text).toContain("## entry one");
+      expect(text).toContain("## entry two");
+    });
+  });
+
   it("executes write plans through core", async () => {
     await withTempProject(async (root) => {
       await executeWritePlan(root, {

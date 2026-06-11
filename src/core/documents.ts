@@ -1,8 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { appendCommandLogInLock, type CommandLogInput } from "./commandLog.js";
 import { managedEnd, managedStart } from "./constants.js";
 import { type WritePlan } from "./schemas.js";
 import { withFileLock } from "./lock.js";
+
+export interface WritePlanOptions {
+  log?: CommandLogInput;
+}
 
 async function readExisting(path: string): Promise<string> {
   try {
@@ -32,7 +37,11 @@ export function appendLogEntry(input: string, source: string, content: string, i
   return `${input.trimEnd()}\n\n${entry}`;
 }
 
-export async function executeWritePlan(projectRoot: string, plan: WritePlan): Promise<void> {
+export async function executeWritePlan(
+  projectRoot: string,
+  plan: WritePlan,
+  options: WritePlanOptions = {}
+): Promise<void> {
   await withFileLock(projectRoot, async () => {
     for (const operation of plan.operations) {
       const absolute = join(projectRoot, operation.path);
@@ -44,13 +53,24 @@ export async function executeWritePlan(projectRoot: string, plan: WritePlan): Pr
 
       if (operation.type === "append") {
         const current = await readExisting(absolute);
-        await writeFile(absolute, `${current.trimEnd()}\n\n${operation.content.trimEnd()}\n`, "utf8");
+        const base = current.trimEnd();
+        const prefix =
+          base.length > 0
+            ? `${base}\n\n`
+            : operation.headerIfMissing
+              ? `${operation.headerIfMissing.trimEnd()}\n\n`
+              : "";
+        await writeFile(absolute, `${prefix}${operation.content.trimEnd()}\n`, "utf8");
       }
 
       if (operation.type === "managed-region") {
         const current = await readExisting(absolute);
         await writeFile(absolute, replaceManagedRegion(current, operation.name, operation.content), "utf8");
       }
+    }
+
+    if (options.log) {
+      await appendCommandLogInLock(projectRoot, options.log);
     }
   });
 }

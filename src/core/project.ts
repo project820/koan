@@ -10,6 +10,7 @@ import {
   STATE_FILES
 } from "./constants.js";
 import { defaultKoanGitignore } from "./gitPolicy.js";
+import { withFileLock } from "./lock.js";
 import type { ProjectConfig } from "./schemas.js";
 
 export interface ProjectInspection {
@@ -109,26 +110,28 @@ async function patchFile(path: string): Promise<void> {
 
 export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
   const projectRoot = await findProjectRoot(start);
-  await mkdir(join(projectRoot, KOAN_DIR), { recursive: true });
-  await mkdir(join(projectRoot, KOAN_STATE_DIR), { recursive: true });
+  return withFileLock(projectRoot, async () => {
+    await mkdir(join(projectRoot, KOAN_DIR), { recursive: true });
+    await mkdir(join(projectRoot, KOAN_STATE_DIR), { recursive: true });
 
-  await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `goal.md`, `status.md`, and `plan.md` first.\n");
-  await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), "# Goal\n\n## Active Goal\n\n<!-- koan:section:start name=\"active-goal\" -->\nNo active goal yet.\n<!-- koan:section:end name=\"active-goal\" -->\n");
-  await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), "# Status\n\n<!-- koan:section:start name=\"current-status\" -->\nNo status recorded yet.\n<!-- koan:section:end name=\"current-status\" -->\n");
-  await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), "# Plan\n\n<!-- koan:section:start name=\"implementation-plan\" -->\nNo implementation plan recorded yet.\n<!-- koan:section:end name=\"implementation-plan\" -->\n");
-  await ensureFile(join(projectRoot, STATE_FILES.gitignore), defaultKoanGitignore());
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `goal.md`, `status.md`, and `plan.md` first.\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), "# Goal\n\n## Active Goal\n\n<!-- koan:section:start name=\"active-goal\" -->\nNo active goal yet.\n<!-- koan:section:end name=\"active-goal\" -->\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), "# Status\n\n<!-- koan:section:start name=\"current-status\" -->\nNo status recorded yet.\n<!-- koan:section:end name=\"current-status\" -->\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), "# Plan\n\n<!-- koan:section:start name=\"implementation-plan\" -->\nNo implementation plan recorded yet.\n<!-- koan:section:end name=\"implementation-plan\" -->\n");
+    await ensureFile(join(projectRoot, STATE_FILES.gitignore), defaultKoanGitignore());
 
-  await patchFile(join(projectRoot, "AGENTS.md"));
-  await patchFile(join(projectRoot, "CLAUDE.md"));
+    await patchFile(join(projectRoot, "AGENTS.md"));
+    await patchFile(join(projectRoot, "CLAUDE.md"));
 
-  const config: ProjectConfig = {
-    version: 1,
-    koanVersion: KOAN_VERSION,
-    projectRoot,
-    strictness: "advisory",
-    experimentalHandoff: false,
-    documents: CORE_DOCUMENTS
-  };
-  await writeFile(join(projectRoot, STATE_FILES.project), `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  return config;
+    const config: ProjectConfig = {
+      version: 1,
+      koanVersion: KOAN_VERSION,
+      projectRoot,
+      strictness: "advisory",
+      experimentalHandoff: false,
+      documents: CORE_DOCUMENTS
+    };
+    await writeFile(join(projectRoot, STATE_FILES.project), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    return config;
+  });
 }
