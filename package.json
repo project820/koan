@@ -2,6 +2,7 @@
   "name": "@m5max/koan",
   "version": "0.1.0",
   "description": "Project-local requirements, QA, and handoff memory for Codex, Claude, and MCP agents.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "koan": "./dist/cli/main.js",
