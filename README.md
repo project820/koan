@@ -1,5 +1,9 @@
 # Koan
 
+[![npm](https://img.shields.io/npm/v/%40koan-labs%2Fkoan)](https://www.npmjs.com/package/@koan-labs/koan)
+[![CI](https://github.com/project820/koan/actions/workflows/ci.yml/badge.svg)](https://github.com/project820/koan/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 Koan is a local-first philosophical PRD tool. It helps you clarify why a
 product should exist — before asking humans or AI agents to build it — and
 crystallizes that intent into readable project documents: philosophy, goals,
