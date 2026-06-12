@@ -15,6 +15,7 @@ import { recordAnswer } from "../core/answers.js";
 import { brightIdea, handoff, hello, qa, recordInsight, status, updateStatus } from "../core/commands.js";
 import { CORE_DOCUMENTS, KOAN_VERSION, LAZY_DOCUMENTS, STATE_FILES } from "../core/constants.js";
 import { crystallize } from "../core/crystallize.js";
+import { collectDashboardSnapshot } from "../core/dashboard.js";
 import { defaultKoanGitignore } from "../core/gitPolicy.js";
 import { adapterFor, detectHost, type HostId } from "../core/hostAdapter.js";
 import { buildPrd } from "../core/prd.js";
@@ -51,7 +52,8 @@ export const toolNames = [
   "koan_record_insight",
   "koan_synthesize_prd",
   "koan_prepare_qa",
-  "koan_prepare_handoff"
+  "koan_prepare_handoff",
+  "koan_get_dashboard"
 ] as const;
 
 type ToolName = (typeof toolNames)[number];
@@ -503,6 +505,23 @@ const tools: Record<ToolName, ToolDefinition> = {
         host: context.host
       });
       return { prepared: true, path: LAZY_DOCUMENTS.qa, checklist: result.checklist };
+    }
+  },
+  koan_get_dashboard: {
+    description:
+      "Read-only snapshot of session phase, per-axis clarity in question-priority order, next question, document summaries, insights, and warnings. Never writes project state.",
+    inputSchema: {
+      type: "object",
+      properties: { projectRoot: { type: "string" }, homeDir: { type: "string" } },
+      required: ["projectRoot", "homeDir"]
+    },
+    handler: async (args, context) => {
+      const parsed = z.object({ projectRoot: z.string(), homeDir: z.string() }).parse(args);
+      return collectDashboardSnapshot({
+        cwd: parsed.projectRoot,
+        homeDir: parsed.homeDir,
+        host: context.host
+      });
     }
   },
   koan_prepare_handoff: {

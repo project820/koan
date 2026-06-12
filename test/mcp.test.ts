@@ -29,7 +29,8 @@ describe("MCP server", () => {
       "koan_record_insight",
       "koan_synthesize_prd",
       "koan_prepare_qa",
-      "koan_prepare_handoff"
+      "koan_prepare_handoff",
+      "koan_get_dashboard"
     ]);
   });
 
@@ -515,6 +516,29 @@ describe("MCP semantic tools", () => {
       expect(readManagedSection(text, "scope")).toBe("Async sharing rooms only.");
       expect(text.indexOf("## Philosophy / Why")).toBeLessThan(text.indexOf("## Product Vision"));
     });
+  });
+
+  it("koan_get_dashboard returns a read-only snapshot with host-adapted question", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        axis: "purpose",
+        answerText: "Make intent durable."
+      });
+
+      const logBefore = await readFile(join(root, ".koan/command-log.json"), "utf8");
+      const snapshot = await callJson(client, "koan_get_dashboard", { projectRoot: root, homeDir: home });
+
+      expect(snapshot.axes).toHaveLength(11);
+      expect(snapshot.axes[0]).toEqual({ axis: "purpose", clarity: 0.8 });
+      expect(snapshot.nextQuestion?.axis).toBe("philosophical_intent");
+      expect(snapshot.nextQuestion?.hostAgentInstruction).toBe(adapterFor("claude").questionInstruction);
+      expect(snapshot.unresolvedCount).toBe(10);
+      expect(snapshot.converged).toBe(false);
+      expect(await readFile(join(root, ".koan/command-log.json"), "utf8")).toBe(logBefore);
+    }, "claude-code-test");
   });
 
   it("koan_inspect_project reports documents and default git policy", async () => {

@@ -15,6 +15,7 @@ import {
 } from "../core/commands.js";
 import { crystallize } from "../core/crystallize.js";
 import { buildPrd } from "../core/prd.js";
+import { runDashboard } from "./dashboard.js";
 import { defaultProfile, loadProfile, resetProfile, saveProfile } from "../core/profile.js";
 import { getQuestion, type KoanQuestion } from "../core/questions.js";
 import { ANSWERED_CLARITY } from "../core/scoring.js";
@@ -67,6 +68,7 @@ const COMMAND_CONTRACTS = {
   enough: { flags: [], positionals: "none" },
   crystallize: { flags: ["--dry-run"], positionals: "none" },
   "bright-idea": { flags: ["--classify"], positionals: "text" },
+  dashboard: { flags: ["--once"], positionals: "none" },
   insight: { flags: [], positionals: "text" },
   prd: { flags: ["--dry-run"], positionals: "none" },
   qa: { flags: [], positionals: "none" },
@@ -99,6 +101,7 @@ function usage(): string {
     "  crystallize [--dry-run]    write recorded answers into project documents",
     "  bright-idea [--classify <type>] <text>",
     "                             record a new idea without changing the plan",
+    "  dashboard [--once]         live read-only view of clarity, goal, and insights",
     "  insight <text>             append a product realization to philosophy.md",
     "  prd [--dry-run]            synthesize koan/prd.md from recorded answers",
     "  qa                         create or refresh QA checklist",
@@ -420,6 +423,12 @@ async function main(argv: string[]): Promise<number> {
     const result = await brightIdea({ cwd, idea, classification });
     console.log(`Bright idea recorded (${result.classification}). ${result.recommendation}`);
     return 0;
+  }
+
+  if (command === "dashboard") {
+    const parsed = parseCommandArgs("dashboard", rest);
+    if (parsed === null) return 1;
+    return runDashboard({ cwd, homeDir, once: parsed.flags.includes("--once") });
   }
 
   if (command === "insight") {

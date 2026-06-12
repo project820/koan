@@ -325,6 +325,27 @@ describe("CLI contract", () => {
     });
   });
 
+  it("dashboard --once prints a static frame without ANSI on a pipe", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Make", "intent", "durable."], { cwd: root, home });
+
+      const result = await runCli(["dashboard", "--once"], { cwd: root, home });
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("purpose");
+      expect(result.stdout).toContain("████████░░ 0.8");
+      expect(result.stdout).toContain("← next");
+      expect(result.stdout).not.toContain("\x1b[");
+
+      // Piped stdout (non-TTY) renders once even without --once. The default
+      // profile language is ko, so labels are Korean.
+      const implicit = await runCli(["dashboard"], { cwd: root, home });
+      expect(implicit.code).toBe(0);
+      expect(implicit.stdout).toContain("임계 0.7");
+    });
+  });
+
   it("insight appends to philosophy.md and rejects empty text", async () => {
     await withTempProject(async (root) => {
       const home = await makeHome(root);

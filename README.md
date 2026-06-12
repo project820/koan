@@ -39,6 +39,9 @@ or API key is required.
 - `koan hello --reset-profile [--yes]` — delete the global profile (`--yes`
   skips confirmation).
 - `koan status` — show goal, status, and next action without writing.
+- `koan dashboard [--once]` — live read-only view of per-axis clarity, the
+  next question, insights, and warnings; refreshes as project files change
+  (`q` to quit, `--once` or a pipe prints a single frame).
 - `koan status --update <text>` — record a status update.
 - `koan status --archive` — archive the active goal to `koan/archive/<goal-id>/`.
 - `koan answer <axis> <text>` — record an answer for one ambiguity axis.
@@ -75,6 +78,7 @@ From a checkout, `npm run mcp` starts the same server.
 | `koan_synthesize_prd` | Synthesize `koan/prd.md`; hosts may supply vision, core value, problem/anti-problem, and user stories grounded in recorded answers. |
 | `koan_prepare_qa` | Generate `koan/qa.md` with spec-compliance and quality checks; embeds an optional implementation summary and returns the checklist. |
 | `koan_prepare_handoff` | Generate `koan/handoff.md` (summary text optional); returns the document and next action; touchless handoff stays disabled. |
+| `koan_get_dashboard` | Read-only snapshot of session phase, per-axis clarity, next question, insights, and warnings — the same data behind `koan dashboard`. |
 
 All tool results are JSON in the first text content block; inputs are
 zod-validated and failures surface as MCP errors.

@@ -16,3 +16,4 @@ export * from "./core/crystallize.js";
 export * from "./core/commands.js";
 export * from "./core/hostAdapter.js";
 export * from "./core/prd.js";
+export * from "./core/dashboard.js";
