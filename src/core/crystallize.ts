@@ -33,7 +33,13 @@ const AXIS_TARGETS: readonly AxisTarget[] = [
   { axis: "success_criteria", path: CORE_DOCUMENTS.goal, region: "success-criteria" },
   { axis: "constraints", path: CORE_DOCUMENTS.goal, region: "constraints" },
   { axis: "implementation_plan", path: CORE_DOCUMENTS.plan, region: "implementation-plan" },
-  { axis: "philosophical_intent", path: LAZY_DOCUMENTS.philosophy, region: "philosophy", bootstrapHeader: "# Philosophy\n" },
+  {
+    axis: "philosophical_intent",
+    path: LAZY_DOCUMENTS.philosophy,
+    region: "philosophy",
+    bootstrapHeader:
+      "# Philosophy\n\nWhy this product deserves to exist. Read this before implementing; if a\nrequested change conflicts with this philosophy, run a Koan clarification\nloop instead of silently expanding scope.\n"
+  },
   { axis: "qa_criteria", path: LAZY_DOCUMENTS.qa, region: "qa-criteria", bootstrapHeader: "# QA\n" },
   { axis: "handoff_readiness", path: LAZY_DOCUMENTS.handoff, region: "handoff-context", bootstrapHeader: "# Handoff\n" }
 ];

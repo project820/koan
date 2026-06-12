@@ -11,6 +11,9 @@ export function buildHandoffDocument(input: HandoffDocumentInput): string {
   return [
     "# Handoff",
     "",
+    "Read `koan/philosophy.md` first when it exists. Keep the continuation",
+    "aligned with the product philosophy, not just the remaining task list.",
+    "",
     "## Current Summary",
     "",
     input.summary,

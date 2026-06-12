@@ -1,7 +1,7 @@
 {
-  "name": "@m5max/koan",
+  "name": "@koan-labs/koan",
   "version": "0.1.0",
-  "description": "Project-local requirements, QA, and handoff memory for Codex, Claude, and MCP agents.",
+  "description": "Local-first philosophical PRD tool that crystallizes vague intent into product requirements, QA criteria, and AI-agent-ready handoff documents.",
   "license": "MIT",
   "type": "module",
   "bin": {

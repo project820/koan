@@ -23,6 +23,17 @@ describe("questions", () => {
     const question = getQuestion("philosophical_intent", defaultProfile({ developmentUnderstanding: "non_technical", language: "ko" }));
     expect(question.userFacingQuestion).toContain("왜");
   });
+
+  it("asks why-layer questions that go beyond surface features", () => {
+    const purpose = getQuestion("purpose", defaultProfile({ developmentUnderstanding: "non_technical", language: "en" }));
+    expect(purpose.userFacingQuestion).toContain("possible");
+
+    const philosophy = getQuestion("philosophical_intent", defaultProfile({ developmentUnderstanding: "intermediate", language: "en" }));
+    expect(philosophy.userFacingQuestion).toContain("never damage");
+
+    const expertPhilosophy = getQuestion("philosophical_intent", defaultProfile({ developmentUnderstanding: "expert", language: "en" }));
+    expect(expertPhilosophy.userFacingQuestion).toContain("philosophy");
+  });
 });
 
 describe("scoring", () => {
@@ -32,10 +43,19 @@ describe("scoring", () => {
     expect(selectMostUnclearAxis(ledger)).toBe("purpose");
   });
 
-  it("selects the next unclear axis after an update", () => {
+  it("keeps the why layer first: philosophical_intent follows purpose in a fresh session", () => {
     const ledger = createInitialLedger("goal-1", "2026-06-11T00:00:00.000Z");
-    const updated = updateAxisScore(ledger, "purpose", 0.9, "User explained purpose.", "2026-06-11T00:01:00.000Z");
-    expect(selectMostUnclearAxis(updated)).toBe("target_users");
+    const afterPurpose = updateAxisScore(ledger, "purpose", 0.9, "User explained purpose.", "2026-06-11T00:01:00.000Z");
+    expect(selectMostUnclearAxis(afterPurpose)).toBe("philosophical_intent");
+
+    const afterPhilosophy = updateAxisScore(
+      afterPurpose,
+      "philosophical_intent",
+      0.9,
+      "User explained philosophy.",
+      "2026-06-11T00:02:00.000Z"
+    );
+    expect(selectMostUnclearAxis(afterPhilosophy)).toBe("current_goal");
   });
 
   it("reports convergence only when every axis meets the threshold", () => {
@@ -52,7 +72,7 @@ describe("scoring", () => {
     expect(isConverged(dipped, 0.69)).toBe(true);
   });
 
-  it("lists unresolved axes most unclear first with schema-order ties", () => {
+  it("lists unresolved axes most unclear first with why-layer priority ties", () => {
     let ledger = createInitialLedger("goal-1", "2026-06-11T00:00:00.000Z");
     ledger = updateAxisScore(ledger, "purpose", 0.9, "Clear purpose.", "2026-06-11T00:01:00.000Z");
     ledger = updateAxisScore(ledger, "scope", 0.3, "Partial scope.", "2026-06-11T00:02:00.000Z");
@@ -60,10 +80,10 @@ describe("scoring", () => {
     ledger = updateAxisScore(ledger, "constraints", 0.1, "Vague constraints.", "2026-06-11T00:04:00.000Z");
 
     expect(unresolvedAxes(ledger, 0.7)).toEqual([
+      "philosophical_intent",
       "target_users",
       "non_goals",
       "success_criteria",
-      "philosophical_intent",
       "implementation_plan",
       "qa_criteria",
       "handoff_readiness",

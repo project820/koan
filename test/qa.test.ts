@@ -5,10 +5,19 @@ describe("buildQaChecklist", () => {
   it("renders the base checklist when context is empty", () => {
     const text = buildQaChecklist();
     expect(text).toContain("Spec Compliance");
+    expect(text).toContain("Philosophy Alignment");
     expect(text).toContain("General Quality");
     expect(text).toContain("MCP Host Agent Prompt");
     expect(text).not.toContain("Active Goal Under Review");
     expect(text).not.toContain("Plan-Derived Checks");
+  });
+
+  it("always asks whether the implementation preserved the product philosophy", () => {
+    const text = buildQaChecklist();
+    expect(text.indexOf("## Philosophy Alignment")).toBeGreaterThan(text.indexOf("## Spec Compliance"));
+    expect(text.indexOf("## Philosophy Alignment")).toBeLessThan(text.indexOf("## General Quality"));
+    expect(text).toContain("preserve the product philosophy in `koan/philosophy.md`");
+    expect(text).toContain("philosophy-alignment issues");
   });
 
   it("treats explicit null context the same as the default", () => {

@@ -70,14 +70,16 @@ function bootstrapBlock(): string {
   return [
     BOOTSTRAP_START,
     "Before working in this project, read:",
-    "1. koan/goal.md",
-    "2. koan/status.md",
-    "3. koan/plan.md",
-    "4. koan/handoff.md if continuing prior work",
+    "1. koan/philosophy.md if it exists — the product philosophy behind every goal",
+    "2. koan/goal.md",
+    "3. koan/status.md",
+    "4. koan/plan.md",
+    "5. koan/handoff.md if continuing prior work",
     "",
-    "Stay aligned with Koan documents. If the requested work changes scope or",
-    "introduces a new direction, record it through `koan bright-idea` before",
-    "implementation.",
+    "Stay aligned with Koan documents. If the requested work changes scope,",
+    "introduces a new direction, or conflicts with the product philosophy,",
+    "record it through `koan bright-idea` and ask the user to run a Koan",
+    "clarification loop instead of silently expanding scope.",
     "",
     "For review work, also read koan/qa.md when it exists.",
     BOOTSTRAP_END,
@@ -127,10 +129,10 @@ export async function ensureKoanProject(start: string): Promise<ProjectConfig> {
     await mkdir(join(projectRoot, KOAN_DIR), { recursive: true });
     await mkdir(join(projectRoot, KOAN_STATE_DIR), { recursive: true });
 
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `goal.md`, `status.md`, and `plan.md` first.\n");
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), `# Goal\n\n## Active Goal\n\n<!-- koan:section:start name="active-goal" -->\n${DEFAULT_ACTIVE_GOAL_PLACEHOLDER}\n<!-- koan:section:end name="active-goal" -->\n`);
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.readme), "# Koan Project Memory\n\nRead `philosophy.md` first when it exists, then `goal.md`, `status.md`, and `plan.md`.\n");
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.goal), `# Goal\n\nThe active goal serves the product philosophy in \`philosophy.md\` when it exists.\n\n## Active Goal\n\n<!-- koan:section:start name="active-goal" -->\n${DEFAULT_ACTIVE_GOAL_PLACEHOLDER}\n<!-- koan:section:end name="active-goal" -->\n`);
     await ensureFile(join(projectRoot, CORE_DOCUMENTS.status), `# Status\n\n<!-- koan:section:start name="current-status" -->\n${DEFAULT_STATUS_PLACEHOLDER}\n<!-- koan:section:end name="current-status" -->\n`);
-    await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), `# Plan\n\n<!-- koan:section:start name="implementation-plan" -->\n${DEFAULT_PLAN_PLACEHOLDER}\n<!-- koan:section:end name="implementation-plan" -->\n`);
+    await ensureFile(join(projectRoot, CORE_DOCUMENTS.plan), `# Plan\n\nImplementation must preserve the product philosophy in \`philosophy.md\` when it exists.\n\n<!-- koan:section:start name="implementation-plan" -->\n${DEFAULT_PLAN_PLACEHOLDER}\n<!-- koan:section:end name="implementation-plan" -->\n`);
     await ensureFile(join(projectRoot, STATE_FILES.gitignore), defaultKoanGitignore());
 
     await patchFile(join(projectRoot, "AGENTS.md"));

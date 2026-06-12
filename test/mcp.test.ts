@@ -175,7 +175,7 @@ describe("MCP semantic tools", () => {
       expect(recorded.answer.answer).toBe(answerText);
       expect(recorded.converged).toBe(false);
       expect(recorded.unresolved).not.toContain("purpose");
-      expect(recorded.nextQuestion?.axis).toBe("target_users");
+      expect(recorded.nextQuestion?.axis).toBe("philosophical_intent");
       expect(typeof recorded.preview.description).toBe("string");
       expect(recorded.preview.files).toContain("koan/goal.md");
       expect(typeof recorded.preview.operations).toBe("number");
@@ -302,17 +302,17 @@ describe("MCP semantic tools", () => {
         answerText: "First no-axis answer."
       });
       expect(first.answer.axis).toBe("purpose");
-      expect(first.nextQuestion?.axis).toBe("target_users");
+      expect(first.nextQuestion?.axis).toBe("philosophical_intent");
 
       const cache = JSON.parse(await readFile(join(root, ".koan/mcp-cache.json"), "utf8"));
-      expect(cache.lastQuestion?.axis).toBe("target_users");
+      expect(cache.lastQuestion?.axis).toBe("philosophical_intent");
 
       const second = await callJson(client, "koan_record_answer", {
         projectRoot: root,
         homeDir: home,
         answerText: "Second no-axis answer."
       });
-      expect(second.answer.axis).toBe("target_users");
+      expect(second.answer.axis).toBe("philosophical_intent");
       expect(second.answer.axis).not.toBe(first.answer.axis);
     });
   });

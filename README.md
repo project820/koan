@@ -1,8 +1,15 @@
 # Koan
 
-Koan is project-local memory for agentic coding work. It helps Codex, Claude,
-and MCP-capable agents converge vague intent into readable project documents:
-goals, plans, status, QA criteria, bright ideas, and handoff notes.
+Koan is a local-first philosophical PRD tool. It helps you clarify why a
+product should exist — before asking humans or AI agents to build it — and
+crystallizes that intent into readable project documents: philosophy, goals,
+plans, status, QA criteria, bright ideas, and handoff notes.
+
+Named after the Zen practice, Koan asks one reflective question at a time,
+starting from purpose and philosophy rather than feature lists. The result is
+durable project memory that people can read and that AI agents — Codex,
+Claude, and any MCP-capable agent — can consume to build faithfully without
+losing your intent.
 
 Koan is MCP-first, but not LLM-provider-first. It never calls an LLM API and
 never transmits project data over the network. The core tool is deterministic;
@@ -13,7 +20,7 @@ host agents provide semantic reasoning through MCP.
 Requires Node.js 20+.
 
 ```bash
-npm install -g @m5max/koan
+npm install -g @koan-labs/koan
 ```
 
 ## CLI
@@ -91,10 +98,18 @@ Koan tracks clarity across 11 ambiguity axes: `purpose`, `target_users`,
 `philosophical_intent`, `implementation_plan`, `qa_criteria`, and
 `handoff_readiness`.
 
+A new session starts at the why layer: `purpose` and `philosophical_intent`
+are asked before goal shaping and implementation planning, so the deeper
+reason behind the product is captured before features are specified. Users
+who want a shorter path can answer briefly and run `koan enough` at any time
+to accept the current clarity and move on.
+
 Question phrasing adapts to the user profile: language (`ko`, `en`, `mixed`)
 crossed with four development-understanding levels. A goal converges when every
 axis reaches the convergence threshold (default `0.7`), configurable as
-`settings.convergenceThreshold` in `.koan/project.json`.
+`settings.convergenceThreshold` in `.koan/project.json`. Crystallized
+documents put philosophy first; `koan/philosophy.md` is the document future
+contributors and agents should read before changing scope.
 
 ## Privacy
 

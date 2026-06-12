@@ -34,6 +34,8 @@ describe("project initialization", () => {
 
       expect(agents).toContain("# Existing agent rules");
       expect(agents.match(/<!-- koan:start -->/g)).toHaveLength(1);
+      expect(agents).toContain("koan/philosophy.md");
+      expect(agents).toContain("clarification loop");
       expect(claude).toContain("# Existing Claude rules");
       expect(claude.match(/<!-- koan:start -->/g)).toHaveLength(1);
     });

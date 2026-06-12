@@ -17,25 +17,25 @@ const fallbackLevels: DevelopmentUnderstanding[] = ["beginner", "intermediate", 
 
 const bank: Record<AmbiguityAxis, QuestionTemplate> = {
   purpose: {
-    intent: "Clarify why the project should exist.",
+    intent: "Clarify why this product deserves to exist.",
     text: {
       ko: {
-        non_technical: "이 프로젝트를 만들고 싶은 가장 큰 이유는 무엇인가요?",
-        beginner: "이 프로젝트가 해결해야 하는 가장 중요한 문제는 무엇인가요?",
-        intermediate: "이 프로젝트의 핵심 목적을 한 문장으로 말하면 무엇인가요?",
-        expert: "이 프로젝트의 primary objective는 무엇인가요?"
+        non_technical: "이것이 완성되어 잘 작동한다면, 지금은 불가능한 어떤 일이 누군가에게 가능해지나요?",
+        beginner: "이 프로젝트가 해결해야 하는 가장 중요한 문제는 무엇이고, 왜 그 문제가 당신에게 중요한가요?",
+        intermediate: "이 제품이 존재해야 하는 이유를 한 문장으로 말하면 무엇인가요?",
+        expert: "이 제품의 존재 이유와, 다른 것이 만들지 못하는 핵심 outcome을 정의해 주세요."
       },
       en: {
-        non_technical: "What is the main reason you want this project to exist?",
-        beginner: "What is the most important problem this project should solve?",
-        intermediate: "What is the project's core purpose in one sentence?",
-        expert: "What is the primary objective of this project?"
+        non_technical: "If this existed and worked beautifully, what would become possible for someone that is not possible today?",
+        beginner: "What is the most important problem this should solve, and why does it matter to you?",
+        intermediate: "In one sentence, why should this product exist?",
+        expert: "Define the product's reason for existence and the core outcome nothing else creates."
       },
       mixed: {
-        non_technical: "이 프로젝트를 만들고 싶은 main reason은 무엇인가요?",
-        beginner: "이 프로젝트가 해결해야 하는 core problem은 무엇인가요?",
-        intermediate: "이 프로젝트의 core purpose를 한 문장으로 말하면 무엇인가요?",
-        expert: "이 프로젝트의 primary objective는 무엇인가요?"
+        non_technical: "이것이 완성되면, 지금은 impossible한 어떤 일이 누군가에게 possible해지나요?",
+        beginner: "해결해야 할 most important problem은 무엇이고, 왜 당신에게 중요한가요?",
+        intermediate: "이 product가 존재해야 하는 이유를 한 문장으로 말하면 무엇인가요?",
+        expert: "이 product의 reason for existence와 핵심 outcome을 정의해 주세요."
       }
     }
   },
@@ -178,25 +178,25 @@ const bank: Record<AmbiguityAxis, QuestionTemplate> = {
     }
   },
   philosophical_intent: {
-    intent: "Record the deeper reason and principle behind the work.",
+    intent: "Surface the deeper need behind the surface solution and the principle the product must never betray.",
     text: {
       ko: {
-        non_technical: "기능 말고, 왜 이걸 만들고 싶어졌나요?",
-        beginner: "이 프로젝트가 바로잡고 싶은 불편함이나 혼란은 무엇인가요?",
-        intermediate: "구현 중에도 잃지 말아야 할 원칙은 무엇인가요?",
-        expert: "What product philosophy should guide tradeoffs?"
+        non_technical: "기능 말고, 왜 이것이 세상에 있어야 한다고 느끼나요?",
+        beginner: "처음 떠올린 기능 뒤에 있는 진짜 필요나 답답함은 무엇인가요?",
+        intermediate: "이 제품이 표면 문제를 완벽히 해결하더라도, 그 과정에서 절대 훼손하면 안 되는 가치는 무엇인가요?",
+        expert: "모든 tradeoff에서 거부권을 갖는 product philosophy — 타협 불가능한 가치 — 를 정의해 주세요."
       },
       en: {
-        non_technical: "Beyond features, why do you want this to exist?",
-        beginner: "What frustration or confusion should this correct?",
-        intermediate: "What principle must survive implementation tradeoffs?",
-        expert: "What product philosophy should guide tradeoffs?"
+        non_technical: "Beyond features, why does this deserve to exist in the world?",
+        beginner: "What real need or frustration sits behind the feature you first imagined?",
+        intermediate: "If this solved the surface problem perfectly, what value must it never damage along the way?",
+        expert: "Define the product philosophy: the non-negotiable value that can veto features and guide tradeoffs."
       },
       mixed: {
-        non_technical: "features 말고, 왜 이걸 만들고 싶어졌나요?",
-        beginner: "이 프로젝트가 correct해야 할 frustration이나 confusion은 무엇인가요?",
-        intermediate: "implementation tradeoffs 속에서도 지킬 principle은 무엇인가요?",
-        expert: "tradeoffs를 guide할 product philosophy는 무엇인가요?"
+        non_technical: "features 말고, 왜 이것이 세상에 exist해야 한다고 느끼나요?",
+        beginner: "처음 떠올린 feature 뒤에 있는 real need나 답답함은 무엇인가요?",
+        intermediate: "surface problem을 완벽히 해결하더라도 절대 damage하면 안 되는 value는 무엇인가요?",
+        expert: "모든 tradeoff에 거부권을 갖는 product philosophy를 정의해 주세요."
       }
     }
   },

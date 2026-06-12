@@ -28,6 +28,11 @@ export function buildQaChecklist(context: QaContext = { activeGoal: null, planSe
     "- Does the implementation follow `koan/plan.md`?",
     "- Are scope changes recorded through `koan bright-idea`?",
     "",
+    "## Philosophy Alignment",
+    "",
+    "- Does the implementation preserve the product philosophy in `koan/philosophy.md` (when it exists)?",
+    "- Did any tradeoff quietly betray the stated core value or non-goals?",
+    "",
     "## General Quality",
     "",
     "- Are targeted tests present?",
@@ -50,7 +55,7 @@ export function buildQaChecklist(context: QaContext = { activeGoal: null, planSe
   lines.push(
     "## MCP Host Agent Prompt",
     "",
-    "Compare the implementation summary against Koan documents. Separate Koan-spec compliance issues from general quality issues.",
+    "Compare the implementation summary against Koan documents, including `koan/philosophy.md` when it exists. Separate Koan-spec compliance issues, philosophy-alignment issues, and general quality issues.",
     ""
   );
 

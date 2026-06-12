@@ -5,6 +5,29 @@ import { AmbiguityAxisSchema, AmbiguityLedgerSchema, type AmbiguityAxis, type Am
 
 export const ANSWERED_CLARITY = 0.8;
 
+// Question priority for equally-unclear axes: the why layer (purpose,
+// philosophical_intent) leads a fresh session before goal shaping and
+// implementation planning.
+export const AXIS_PRIORITY: readonly AmbiguityAxis[] = [
+  "purpose",
+  "philosophical_intent",
+  "current_goal",
+  "target_users",
+  "scope",
+  "non_goals",
+  "constraints",
+  "success_criteria",
+  "implementation_plan",
+  "qa_criteria",
+  "handoff_readiness"
+];
+
+const priorityIndex = new Map(AXIS_PRIORITY.map((axis, index) => [axis, index]));
+
+function axisPriority(axis: AmbiguityAxis): number {
+  return priorityIndex.get(axis) ?? AXIS_PRIORITY.length;
+}
+
 export function createInitialLedger(goalId: string, isoDate = new Date().toISOString()): AmbiguityLedger {
   return {
     version: 1,
@@ -19,7 +42,9 @@ export function createInitialLedger(goalId: string, isoDate = new Date().toISOSt
 }
 
 export function selectMostUnclearAxis(ledger: AmbiguityLedger): AmbiguityAxis {
-  const sorted = [...ledger.axes].sort((a, b) => a.clarity - b.clarity);
+  const sorted = [...ledger.axes].sort(
+    (a, b) => a.clarity - b.clarity || axisPriority(a.axis) - axisPriority(b.axis)
+  );
   return sorted[0]?.axis ?? "purpose";
 }
 
@@ -59,13 +84,8 @@ export function isConverged(ledger: AmbiguityLedger, threshold: number): boolean
 }
 
 export function unresolvedAxes(ledger: AmbiguityLedger, threshold: number): AmbiguityAxis[] {
-  const schemaOrder = new Map(AmbiguityAxisSchema.options.map((axis, index) => [axis, index]));
   return ledger.axes
     .filter((entry) => entry.clarity < threshold)
-    .sort(
-      (a, b) =>
-        a.clarity - b.clarity ||
-        (schemaOrder.get(a.axis) ?? 0) - (schemaOrder.get(b.axis) ?? 0)
-    )
+    .sort((a, b) => a.clarity - b.clarity || axisPriority(a.axis) - axisPriority(b.axis))
     .map((entry) => entry.axis);
 }

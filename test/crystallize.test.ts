@@ -75,12 +75,12 @@ describe("crystallize", () => {
       const region = readManagedSection(openText, "open-questions");
       const lines = region?.split("\n") ?? [];
       const expectedAxes: AmbiguityAxis[] = [
+        "philosophical_intent",
         "target_users",
         "scope",
         "non_goals",
         "constraints",
         "success_criteria",
-        "philosophical_intent",
         "implementation_plan",
         "qa_criteria",
         "handoff_readiness"
@@ -104,13 +104,13 @@ describe("crystallize", () => {
 
       const result = await crystallize({ cwd: root, homeDir: root, isoDate: ISO });
 
-      expect(result.plan.operations[0]).toEqual({
+      expect(result.plan.operations[0]).toMatchObject({
         type: "write",
-        path: "koan/philosophy.md",
-        content: "# Philosophy\n"
+        path: "koan/philosophy.md"
       });
       const text = await readText(join(root, "koan/philosophy.md"));
       expect(text.startsWith("# Philosophy")).toBe(true);
+      expect(text).toContain("Read this before implementing");
       expect(readManagedSection(text, "philosophy")).toBe(answer);
     });
   });
