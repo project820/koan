@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { CORE_DOCUMENTS, LAZY_DOCUMENTS } from "./constants.js";
 import { executeWritePlan, sanitizeRegionContent } from "./documents.js";
 import { defaultProfile, loadProfile } from "./profile.js";
-import { findProjectRoot, loadProjectConfig } from "./project.js";
+import { PHILOSOPHY_BOOTSTRAP, findProjectRoot, loadProjectConfig } from "./project.js";
 import { getQuestion } from "./questions.js";
 import {
   DEFAULT_CONVERGENCE_THRESHOLD,
@@ -37,8 +37,7 @@ const AXIS_TARGETS: readonly AxisTarget[] = [
     axis: "philosophical_intent",
     path: LAZY_DOCUMENTS.philosophy,
     region: "philosophy",
-    bootstrapHeader:
-      "# Philosophy\n\nWhy this product deserves to exist. Read this before implementing; if a\nrequested change conflicts with this philosophy, run a Koan clarification\nloop instead of silently expanding scope.\n"
+    bootstrapHeader: PHILOSOPHY_BOOTSTRAP
   },
   { axis: "qa_criteria", path: LAZY_DOCUMENTS.qa, region: "qa-criteria", bootstrapHeader: "# QA\n" },
   { axis: "handoff_readiness", path: LAZY_DOCUMENTS.handoff, region: "handoff-context", bootstrapHeader: "# Handoff\n" }

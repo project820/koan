@@ -6,11 +6,13 @@ import { executeWritePlan, readManagedSection, sanitizeRegionContent } from "./d
 import { buildHandoffDocument } from "./handoff.js";
 import {
   DEFAULT_ACTIVE_GOAL_PLACEHOLDER,
+  PHILOSOPHY_BOOTSTRAP,
   ensureKoanProject,
   findProjectRoot,
   loadProjectConfig
 } from "./project.js";
 import { ensureProfileRef } from "./profileRef.js";
+import { type HostId } from "./hostAdapter.js";
 import { buildQaChecklist } from "./qa.js";
 import { defaultProfile, loadProfile, saveProfile } from "./profile.js";
 import { getQuestion, type KoanQuestion } from "./questions.js";
@@ -256,16 +258,46 @@ export async function brightIdea(
   return { classification, recommendation: BRIGHT_IDEA_RECOMMENDATIONS[classification] };
 }
 
+// Append-only by design: insights are a chronicle of how the product's "why"
+// sharpened over time, so later entries never replace earlier ones.
+export async function recordInsight(
+  input: { cwd: string; text: string; isoDate?: string }
+): Promise<{ projectRoot: string; path: string }> {
+  const projectRoot = await findProjectRoot(input.cwd);
+  const text = sanitizeRegionContent(input.text.trim());
+  if (!text) throw new Error("Insight text is required.");
+  const isoDate = input.isoDate ?? new Date().toISOString();
+  await executeWritePlan(
+    projectRoot,
+    {
+      description: "Record insight",
+      operations: [
+        {
+          type: "append",
+          path: LAZY_DOCUMENTS.philosophy,
+          content: `## ${isoDate} — koan insight\n\n${text}`,
+          headerIfMissing: PHILOSOPHY_BOOTSTRAP
+        }
+      ]
+    },
+    { log: { command: "koan insight", summary: "Recorded an insight." } }
+  );
+  return { projectRoot, path: LAZY_DOCUMENTS.philosophy };
+}
+
 export async function qa(
-  input: { cwd: string; implementationSummary?: string }
+  input: { cwd: string; implementationSummary?: string; host?: HostId }
 ): Promise<{ projectRoot: string; checklist: string }> {
   const projectRoot = await findProjectRoot(input.cwd);
   const goalText = await readFile(join(projectRoot, CORE_DOCUMENTS.goal), "utf8").catch(() => null);
   const planText = await readFile(join(projectRoot, CORE_DOCUMENTS.plan), "utf8").catch(() => null);
-  let checklist = buildQaChecklist({
-    activeGoal: goalText === null ? null : readManagedSection(goalText, "active-goal"),
-    planSection: planText === null ? null : readManagedSection(planText, "implementation-plan")
-  });
+  let checklist = buildQaChecklist(
+    {
+      activeGoal: goalText === null ? null : readManagedSection(goalText, "active-goal"),
+      planSection: planText === null ? null : readManagedSection(planText, "implementation-plan")
+    },
+    input.host ?? "generic"
+  );
   if (input.implementationSummary !== undefined) {
     checklist += `\n## Implementation Summary (host-provided)\n\n${input.implementationSummary.trim()}\n`;
   }

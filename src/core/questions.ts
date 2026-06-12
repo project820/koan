@@ -1,3 +1,4 @@
+import { adapterFor, type HostId } from "./hostAdapter.js";
 import type { AmbiguityAxis, DevelopmentUnderstanding, Language, UserProfile } from "./schemas.js";
 
 interface QuestionTemplate {
@@ -271,7 +272,7 @@ const bank: Record<AmbiguityAxis, QuestionTemplate> = {
   }
 };
 
-export function getQuestion(axis: AmbiguityAxis, profile: UserProfile): KoanQuestion {
+export function getQuestion(axis: AmbiguityAxis, profile: UserProfile, host: HostId = "generic"): KoanQuestion {
   const template = bank[axis];
   const language = profile.language;
   const byLevel = template.text[language] ?? template.text.ko;
@@ -285,7 +286,6 @@ export function getQuestion(axis: AmbiguityAxis, profile: UserProfile): KoanQues
     intent: template.intent,
     userFacingQuestion: question,
     answerSchema: "free_text",
-    hostAgentInstruction:
-      "Preserve the user's reasoning. If using MCP mode, structure the answer into decision, reasoning, constraints, out-of-scope, and project context before recording it."
+    hostAgentInstruction: adapterFor(host).questionInstruction
   };
 }

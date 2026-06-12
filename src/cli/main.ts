@@ -7,12 +7,14 @@ import {
   handoff,
   hello,
   qa,
+  recordInsight,
   status,
   updateStatus,
   type BrightIdeaClassification,
   type HelloResult
 } from "../core/commands.js";
 import { crystallize } from "../core/crystallize.js";
+import { buildPrd } from "../core/prd.js";
 import { defaultProfile, loadProfile, resetProfile, saveProfile } from "../core/profile.js";
 import { getQuestion, type KoanQuestion } from "../core/questions.js";
 import { ANSWERED_CLARITY } from "../core/scoring.js";
@@ -65,6 +67,8 @@ const COMMAND_CONTRACTS = {
   enough: { flags: [], positionals: "none" },
   crystallize: { flags: ["--dry-run"], positionals: "none" },
   "bright-idea": { flags: ["--classify"], positionals: "text" },
+  insight: { flags: [], positionals: "text" },
+  prd: { flags: ["--dry-run"], positionals: "none" },
   qa: { flags: [], positionals: "none" },
   handoff: { flags: [], positionals: "text" }
 } as const satisfies Record<string, CommandContract>;
@@ -95,6 +99,8 @@ function usage(): string {
     "  crystallize [--dry-run]    write recorded answers into project documents",
     "  bright-idea [--classify <type>] <text>",
     "                             record a new idea without changing the plan",
+    "  insight <text>             append a product realization to philosophy.md",
+    "  prd [--dry-run]            synthesize koan/prd.md from recorded answers",
     "  qa                         create or refresh QA checklist",
     "  handoff <summary>          create document-based handoff",
     "                             (summaries beginning with \"--\" are unsupported)"
@@ -413,6 +419,32 @@ async function main(argv: string[]): Promise<number> {
     }
     const result = await brightIdea({ cwd, idea, classification });
     console.log(`Bright idea recorded (${result.classification}). ${result.recommendation}`);
+    return 0;
+  }
+
+  if (command === "insight") {
+    const parsed = parseCommandArgs("insight", rest);
+    if (parsed === null) return 1;
+    const text = parsed.text.join(" ").trim();
+    if (!text) {
+      console.error("Usage: koan insight <text>");
+      return 1;
+    }
+    const result = await recordInsight({ cwd, text });
+    console.log(`Insight recorded in ${result.path}.`);
+    return 0;
+  }
+
+  if (command === "prd") {
+    const parsed = parseCommandArgs("prd", rest);
+    if (parsed === null) return 1;
+    const dryRun = parsed.flags.includes("--dry-run");
+    const result = await buildPrd({ cwd, homeDir, dryRun });
+    if (dryRun) {
+      console.log(`Dry run: ${result.plan.operations.length} operations planned.`);
+      return 0;
+    }
+    console.log(`PRD synthesized at ${result.path}.`);
     return 0;
   }
 

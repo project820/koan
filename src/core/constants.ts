@@ -1,4 +1,4 @@
-export const KOAN_VERSION = "0.1.0";
+export const KOAN_VERSION = "0.2.0";
 
 export const KOAN_DIR = "koan";
 export const KOAN_STATE_DIR = ".koan";
@@ -16,7 +16,8 @@ export const LAZY_DOCUMENTS = {
   openQuestions: "koan/open-questions.md",
   qa: "koan/qa.md",
   handoff: "koan/handoff.md",
-  brightIdeas: "koan/bright-ideas.md"
+  brightIdeas: "koan/bright-ideas.md",
+  prd: "koan/prd.md"
 } as const;
 
 export const STATE_FILES = {

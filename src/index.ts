@@ -14,3 +14,5 @@ export * from "./core/reconstruct.js";
 export * from "./core/answers.js";
 export * from "./core/crystallize.js";
 export * from "./core/commands.js";
+export * from "./core/hostAdapter.js";
+export * from "./core/prd.js";

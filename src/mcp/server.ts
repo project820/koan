@@ -12,10 +12,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { recordAnswer } from "../core/answers.js";
-import { brightIdea, handoff, hello, qa, status, updateStatus } from "../core/commands.js";
+import { brightIdea, handoff, hello, qa, recordInsight, status, updateStatus } from "../core/commands.js";
 import { CORE_DOCUMENTS, KOAN_VERSION, LAZY_DOCUMENTS, STATE_FILES } from "../core/constants.js";
 import { crystallize } from "../core/crystallize.js";
 import { defaultKoanGitignore } from "../core/gitPolicy.js";
+import { adapterFor, detectHost, type HostId } from "../core/hostAdapter.js";
+import { buildPrd } from "../core/prd.js";
 import { loadMcpCache, updateMcpCache } from "../core/mcpCache.js";
 import { defaultProfile, loadProfile, updateProfile } from "../core/profile.js";
 import { loadProfileRef } from "../core/profileRef.js";
@@ -46,6 +48,8 @@ export const toolNames = [
   "koan_get_status",
   "koan_update_status",
   "koan_record_bright_idea",
+  "koan_record_insight",
+  "koan_synthesize_prd",
   "koan_prepare_qa",
   "koan_prepare_handoff"
 ] as const;
@@ -63,10 +67,24 @@ const profileFieldProperties = {
   learningMode: { type: "string", enum: [...LearningModeSchema.options] }
 };
 
+interface ToolContext {
+  host: HostId;
+}
+
 interface ToolDefinition {
   description: string;
   inputSchema: Tool["inputSchema"];
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
+  handler: (args: Record<string, unknown>, context: ToolContext) => Promise<unknown>;
+}
+
+// The host adapter only varies instruction phrasing; reapplying it to a
+// question computed by host-agnostic core code keeps the core API unchanged.
+function withHostInstruction<T extends { hostAgentInstruction: string } | null>(
+  question: T,
+  host: HostId
+): T {
+  if (!question) return question;
+  return { ...question, hostAgentInstruction: adapterFor(host).questionInstruction };
 }
 
 function textContent(value: unknown) {
@@ -143,7 +161,7 @@ const tools: Record<ToolName, ToolDefinition> = {
       },
       required: ["projectRoot", "homeDir"]
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const parsed = z
         .object({
           projectRoot: z.string(),
@@ -174,7 +192,7 @@ const tools: Record<ToolName, ToolDefinition> = {
         resumed: result.resumed,
         reconstructed: result.reconstructed,
         converged: result.converged,
-        nextQuestion: result.nextQuestion,
+        nextQuestion: withHostInstruction(result.nextQuestion, context.host),
         resumeRequested: parsed.resume ?? false,
         rawIntent: cache.rawIntent,
         rawIntentCaptured
@@ -188,7 +206,7 @@ const tools: Record<ToolName, ToolDefinition> = {
       properties: { projectRoot: { type: "string" }, homeDir: { type: "string" } },
       required: ["projectRoot", "homeDir"]
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const parsed = z.object({ projectRoot: z.string(), homeDir: z.string() }).parse(args);
       const state = await loadSessionState(parsed.projectRoot);
       if (!state) throw new Error("No active Koan session. Run koan hello first.");
@@ -206,7 +224,7 @@ const tools: Record<ToolName, ToolDefinition> = {
         return { converged: true, question: null };
       }
       const axis = selectMostUnclearAxis(ledger);
-      const question = getQuestion(axis, profile);
+      const question = getQuestion(axis, profile, context.host);
       await updateMcpCache(parsed.projectRoot, (current) => ({
         ...current,
         lastQuestion: { sessionId: state.sessionId, axis, questionId: axis, askedAt: new Date().toISOString() }
@@ -240,7 +258,7 @@ const tools: Record<ToolName, ToolDefinition> = {
       },
       required: ["projectRoot", "homeDir", "answerText"]
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const parsed = z
         .object({
           projectRoot: z.string(),
@@ -293,7 +311,7 @@ const tools: Record<ToolName, ToolDefinition> = {
         answer: result.answer,
         converged: result.converged,
         unresolved: result.unresolved,
-        nextQuestion: result.nextQuestion,
+        nextQuestion: withHostInstruction(result.nextQuestion, context.host),
         preview: {
           description: preview.plan.description,
           files: preview.files,
@@ -395,6 +413,75 @@ const tools: Record<ToolName, ToolDefinition> = {
       return { recorded: true, classification: result.classification, recommendation: result.recommendation };
     }
   },
+  koan_record_insight: {
+    description:
+      "Append a product realization — the user discovering that the real product differs from the surface request — to koan/philosophy.md. Append-only: insights chronicle how the product's why sharpened over time.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectRoot: { type: "string" },
+        text: { type: "string" }
+      },
+      required: ["projectRoot", "text"]
+    },
+    handler: async (args) => {
+      const parsed = z.object({ projectRoot: z.string(), text: z.string() }).parse(args);
+      const result = await recordInsight({ cwd: parsed.projectRoot, text: parsed.text });
+      return { recorded: true, path: result.path };
+    }
+  },
+  koan_synthesize_prd: {
+    description:
+      "Synthesize koan/prd.md: deterministic sections are assembled from recorded answers; the host may provide vision, coreValue, problemAntiProblem, and userStories synthesized strictly from the recorded answers and koan/philosophy.md — never invented requirements.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projectRoot: { type: "string" },
+        homeDir: { type: "string" },
+        sections: {
+          type: "object",
+          properties: {
+            vision: { type: "string" },
+            coreValue: { type: "string" },
+            problemAntiProblem: { type: "string" },
+            userStories: { type: "string" }
+          }
+        },
+        dryRun: { type: "boolean" }
+      },
+      required: ["projectRoot", "homeDir"]
+    },
+    handler: async (args, context) => {
+      const parsed = z
+        .object({
+          projectRoot: z.string(),
+          homeDir: z.string(),
+          sections: z
+            .object({
+              vision: z.string().optional(),
+              coreValue: z.string().optional(),
+              problemAntiProblem: z.string().optional(),
+              userStories: z.string().optional()
+            })
+            .optional(),
+          dryRun: z.boolean().optional()
+        })
+        .parse(args);
+      const result = await buildPrd({
+        cwd: parsed.projectRoot,
+        homeDir: parsed.homeDir,
+        sections: parsed.sections,
+        host: context.host,
+        dryRun: parsed.dryRun
+      });
+      return {
+        prepared: result.executed,
+        path: result.path,
+        operations: result.plan.operations.length,
+        document: result.document
+      };
+    }
+  },
   koan_prepare_qa: {
     description:
       "Generate the QA checklist at koan/qa.md from the goal and plan documents, embedding an optional host-provided implementation summary.",
@@ -406,13 +493,14 @@ const tools: Record<ToolName, ToolDefinition> = {
       },
       required: ["projectRoot"]
     },
-    handler: async (args) => {
+    handler: async (args, context) => {
       const parsed = z
         .object({ projectRoot: z.string(), implementationSummary: z.string().optional() })
         .parse(args);
       const result = await qa({
         cwd: parsed.projectRoot,
-        implementationSummary: parsed.implementationSummary
+        implementationSummary: parsed.implementationSummary,
+        host: context.host
       });
       return { prepared: true, path: LAZY_DOCUMENTS.qa, checklist: result.checklist };
     }
@@ -464,7 +552,10 @@ export function createServer(): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name } = request.params;
     if (!isToolName(name)) throw new Error(`Unknown tool: ${name}`);
-    return textContent(await tools[name].handler(request.params.arguments ?? {}));
+    // clientInfo comes from the MCP initialize handshake — a local, deterministic
+    // signal; unknown or absent clients fall back to the generic adapter.
+    const context: ToolContext = { host: detectHost(server.getClientVersion()?.name) };
+    return textContent(await tools[name].handler(request.params.arguments ?? {}, context));
   });
 
   return server;

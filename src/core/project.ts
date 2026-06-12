@@ -114,6 +114,9 @@ export const DEFAULT_ACTIVE_GOAL_PLACEHOLDER = "No active goal yet.";
 export const DEFAULT_PLAN_PLACEHOLDER = "No implementation plan recorded yet.";
 export const DEFAULT_STATUS_PLACEHOLDER = "No status recorded yet.";
 
+export const PHILOSOPHY_BOOTSTRAP =
+  "# Philosophy\n\nWhy this product deserves to exist. Read this before implementing; if a\nrequested change conflicts with this philosophy, run a Koan clarification\nloop instead of silently expanding scope.\n";
+
 export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfig | null> {
   try {
     const raw = await readFile(join(projectRoot, STATE_FILES.project), "utf8");

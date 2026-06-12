@@ -325,6 +325,47 @@ describe("CLI contract", () => {
     });
   });
 
+  it("insight appends to philosophy.md and rejects empty text", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      const recorded = await runCli(["insight", "The", "real", "product", "is", "calm."], {
+        cwd: root,
+        home
+      });
+      expect(recorded.code).toBe(0);
+      expect(recorded.stdout).toContain("Insight recorded in koan/philosophy.md.");
+
+      const text = await readFile(join(root, "koan/philosophy.md"), "utf8");
+      expect(text).toContain("— koan insight");
+      expect(text).toContain("The real product is calm.");
+
+      const empty = await runCli(["insight"], { cwd: root, home });
+      expect(empty.code).toBe(1);
+      expect(empty.stderr).toContain("Usage: koan insight <text>");
+    });
+  });
+
+  it("prd synthesizes koan/prd.md and supports dry-run", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Make", "loneliness", "shareable."], { cwd: root, home });
+
+      const dry = await runCli(["prd", "--dry-run"], { cwd: root, home });
+      expect(dry.code).toBe(0);
+      expect(dry.stdout).toContain("Dry run:");
+      await expect(access(join(root, "koan/prd.md"))).rejects.toThrow();
+
+      const built = await runCli(["prd"], { cwd: root, home });
+      expect(built.code).toBe(0);
+      expect(built.stdout).toContain("PRD synthesized at koan/prd.md.");
+      const text = await readFile(join(root, "koan/prd.md"), "utf8");
+      expect(text).toContain("## Philosophy / Why");
+      expect(text).toContain("Make loneliness shareable.");
+    });
+  });
+
   it("bright-idea records classification and rejects invalid values", async () => {
     await withTempProject(async (root) => {
       const home = await makeHome(root);

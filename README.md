@@ -43,6 +43,10 @@ or API key is required.
   `--dry-run` previews the write plan.
 - `koan bright-idea [--classify <type>] <text>` — record an idea without
   changing the plan; types: `clarify`, `change-goal`, `later-follow-up`, `reject`.
+- `koan insight <text>` — append a product realization (the moment the real
+  product turns out to differ from the surface request) to `koan/philosophy.md`.
+- `koan prd [--dry-run]` — synthesize `koan/prd.md` from recorded answers,
+  philosophy first.
 - `koan qa` — create or refresh the QA checklist.
 - `koan handoff <summary>` — create a document-based handoff.
 
@@ -63,6 +67,8 @@ From a checkout, `npm run mcp` starts the same server.
 | `koan_get_status` | Summarize goal, status, next action, stale-state warnings, and the stored `rawIntent`. |
 | `koan_update_status` | Write a status update into `koan/status.md` and the handoff document; reports the affected files. |
 | `koan_record_bright_idea` | Record a classified idea plus a deterministic recommendation. |
+| `koan_record_insight` | Append a product realization to `koan/philosophy.md` (append-only insight log). |
+| `koan_synthesize_prd` | Synthesize `koan/prd.md`; hosts may supply vision, core value, problem/anti-problem, and user stories grounded in recorded answers. |
 | `koan_prepare_qa` | Generate `koan/qa.md` with spec-compliance and quality checks; embeds an optional implementation summary and returns the checklist. |
 | `koan_prepare_handoff` | Generate `koan/handoff.md` (summary text optional); returns the document and next action; touchless handoff stays disabled. |
 
@@ -83,7 +89,7 @@ Human-facing memory lives in `koan/`; machine state lives in `.koan/`.
   `koan/status.md`, `koan/plan.md`.
 - Lazy documents (created on first use): `koan/philosophy.md`,
   `koan/decisions.md`, `koan/open-questions.md`, `koan/qa.md`,
-  `koan/handoff.md`, `koan/bright-ideas.md`.
+  `koan/handoff.md`, `koan/bright-ideas.md`, `koan/prd.md`.
 - State: `.koan/project.json` is intended to be committed; session state, the
   ambiguity ledger, command log, MCP cache, and lock files are ignored through
   a generated `.koan/.gitignore`.
@@ -110,6 +116,18 @@ axis reaches the convergence threshold (default `0.7`), configurable as
 `settings.convergenceThreshold` in `.koan/project.json`. Crystallized
 documents put philosophy first; `koan/philosophy.md` is the document future
 contributors and agents should read before changing scope.
+
+`koan prd` synthesizes the answers into a single PRD (`koan/prd.md`) ordered
+philosophy-first: the deterministic core fills every section it has answers
+for, and host agents may enrich the vision, core-value, problem/anti-problem,
+and user-story sections through `koan_synthesize_prd` — always grounded in
+what the user actually said. `koan insight` keeps an append-only log of the
+moments when the real product turned out to differ from the surface request.
+
+Instructions to host agents adapt to the connected MCP client (detected
+locally from the MCP handshake — Claude, Codex/OpenAI, or generic): the
+phrasing follows each model family's prompting guidance while the contract
+stays identical across hosts. See `docs/host-adapters.md`.
 
 ## Privacy
 

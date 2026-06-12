@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { acceptClarity, recordAnswer } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
-import { hello, status, updateStatus, brightIdea, qa, handoff, archive } from "../src/core/commands.js";
+import { hello, status, updateStatus, brightIdea, qa, handoff, archive, recordInsight } from "../src/core/commands.js";
 import { crystallize } from "../src/core/crystallize.js";
 import { STATE_FILES } from "../src/core/constants.js";
 import { readManagedSection, replaceManagedRegion } from "../src/core/documents.js";
@@ -156,6 +156,51 @@ describe("core commands", () => {
       expect(gitignore).toContain("command-log.json");
       const log = await loadCommandLog(root);
       expect(log.entries.map((entry) => entry.command)).toEqual(["koan bright-idea"]);
+    });
+  });
+
+  it("recordInsight bootstraps philosophy.md and appends entries in order", async () => {
+    await withTempProject(async (root) => {
+      const first = await recordInsight({
+        cwd: root,
+        text: "The real product is async sharing, not a feed.",
+        isoDate: "2026-06-12T00:00:00.000Z"
+      });
+      expect(first.path).toBe("koan/philosophy.md");
+
+      await recordInsight({
+        cwd: root,
+        text: "Quiet beats engagement.",
+        isoDate: "2026-06-12T00:01:00.000Z"
+      });
+
+      const text = await readFile(join(root, "koan/philosophy.md"), "utf8");
+      expect(text.startsWith("# Philosophy")).toBe(true);
+      expect(text.match(/— koan insight/g)).toHaveLength(2);
+      expect(text.indexOf("async sharing")).toBeLessThan(text.indexOf("Quiet beats engagement."));
+
+      const log = await loadCommandLog(root);
+      expect(log.entries.map((entry) => entry.command)).toEqual(["koan insight", "koan insight"]);
+    });
+  });
+
+  it("recordInsight rejects empty text and preserves crystallized philosophy regions", async () => {
+    await withTempProject(async (root) => {
+      await expect(recordInsight({ cwd: root, text: "   " })).rejects.toThrow("Insight text is required.");
+
+      await hello({ cwd: root, homeDir: root });
+      await recordAnswer({
+        cwd: root,
+        homeDir: root,
+        axis: "philosophical_intent",
+        answer: "Clarity must survive tradeoffs."
+      });
+      await crystallize({ cwd: root, homeDir: root });
+      await recordInsight({ cwd: root, text: "A later realization." });
+
+      const text = await readFile(join(root, "koan/philosophy.md"), "utf8");
+      expect(readManagedSection(text, "philosophy")).toBe("Clarity must survive tradeoffs.");
+      expect(text).toContain("A later realization.");
     });
   });
 

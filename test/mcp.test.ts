@@ -8,6 +8,7 @@ import { acceptClarity } from "../src/core/answers.js";
 import { loadCommandLog } from "../src/core/commandLog.js";
 import { archive } from "../src/core/commands.js";
 import { readManagedSection } from "../src/core/documents.js";
+import { adapterFor } from "../src/core/hostAdapter.js";
 import { defaultProfile, loadProfile, saveProfile } from "../src/core/profile.js";
 import { AmbiguityAxisSchema } from "../src/core/schemas.js";
 import { createServer, toolNames } from "../src/mcp/server.js";
@@ -25,6 +26,8 @@ describe("MCP server", () => {
       "koan_get_status",
       "koan_update_status",
       "koan_record_bright_idea",
+      "koan_record_insight",
+      "koan_synthesize_prd",
       "koan_prepare_qa",
       "koan_prepare_handoff"
     ]);
@@ -77,11 +80,14 @@ interface McpTestContext {
 
 // Hermetic harness: one temp project dir (with a temp home subdir) plus one
 // linked in-memory server/client pair per test, torn down afterwards.
-async function withMcp(fn: (ctx: McpTestContext) => Promise<void>): Promise<void> {
+async function withMcp(
+  fn: (ctx: McpTestContext) => Promise<void>,
+  clientName = "koan-test-client"
+): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "koan-mcp-"));
   const home = join(root, "home");
   const server = createServer();
-  const client = new Client({ name: "koan-test-client", version: "0.0.0" });
+  const client = new Client({ name: clientName, version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   try {
     await mkdir(home, { recursive: true });
@@ -438,6 +444,76 @@ describe("MCP semantic tools", () => {
       const ideas = await readFile(join(root, "koan/bright-ideas.md"), "utf8");
       expect(ideas).toContain("Rewrite the whole tool in a new framework.");
       expect(ideas).toContain("Add a web dashboard for ledgers.");
+    });
+  });
+
+  it("koan_record_insight appends to philosophy.md and never overwrites prior entries", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      const first = await callJson(client, "koan_record_insight", {
+        projectRoot: root,
+        text: "The real product is a quiet place to share loneliness, not a social feed."
+      });
+      expect(first.recorded).toBe(true);
+      expect(first.path).toBe("koan/philosophy.md");
+
+      await callJson(client, "koan_record_insight", {
+        projectRoot: root,
+        text: "Safety matters more than engagement."
+      });
+
+      const text = await readFile(join(root, "koan/philosophy.md"), "utf8");
+      expect(text.startsWith("# Philosophy")).toBe(true);
+      expect(text).toContain("quiet place to share loneliness");
+      expect(text).toContain("Safety matters more than engagement.");
+      expect(text.match(/— koan insight/g)).toHaveLength(2);
+    });
+  });
+
+  it("adapts host instructions to the connected MCP client", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      const session = await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      expect(session.nextQuestion?.hostAgentInstruction).toBe(adapterFor("claude").questionInstruction);
+
+      const question = await callJson(client, "koan_get_next_question", { projectRoot: root, homeDir: home });
+      expect(question.hostAgentInstruction).toBe(adapterFor("claude").questionInstruction);
+
+      const qaResult = await callJson(client, "koan_prepare_qa", { projectRoot: root });
+      expect(qaResult.checklist).toContain(adapterFor("claude").qaPrompt);
+    }, "claude-code-test");
+  });
+
+  it("falls back to the generic adapter for unknown MCP clients", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      const next = await callJson(client, "koan_get_next_question", { projectRoot: root, homeDir: home });
+      expect(next.hostAgentInstruction).toBe(adapterFor("generic").questionInstruction);
+    });
+  });
+
+  it("koan_synthesize_prd merges host sections with deterministic answers", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+      await callJson(client, "koan_record_answer", {
+        projectRoot: root,
+        homeDir: home,
+        axis: "scope",
+        answerText: "Async sharing rooms only."
+      });
+
+      const result = await callJson(client, "koan_synthesize_prd", {
+        projectRoot: root,
+        homeDir: home,
+        sections: { vision: "A quiet place where loneliness can be shared safely." }
+      });
+      expect(result.prepared).toBe(true);
+      expect(result.path).toBe("koan/prd.md");
+      expect(typeof result.document).toBe("string");
+
+      const text = await readFile(join(root, "koan/prd.md"), "utf8");
+      expect(readManagedSection(text, "vision")).toBe("A quiet place where loneliness can be shared safely.");
+      expect(readManagedSection(text, "scope")).toBe("Async sharing rooms only.");
+      expect(text.indexOf("## Philosophy / Why")).toBeLessThan(text.indexOf("## Product Vision"));
     });
   });
 

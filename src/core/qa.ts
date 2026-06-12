@@ -1,3 +1,4 @@
+import { adapterFor, type HostId } from "./hostAdapter.js";
 import { DEFAULT_ACTIVE_GOAL_PLACEHOLDER, DEFAULT_PLAN_PLACEHOLDER } from "./project.js";
 
 export interface QaContext {
@@ -9,7 +10,10 @@ function stripListMarker(line: string): string {
   return line.replace(/^(?:\d+[.)]\s+|[-*+]\s+(?:\[.\]\s+)?)/, "");
 }
 
-export function buildQaChecklist(context: QaContext = { activeGoal: null, planSection: null }): string {
+export function buildQaChecklist(
+  context: QaContext = { activeGoal: null, planSection: null },
+  host: HostId = "generic"
+): string {
   const lines: string[] = ["# QA"];
 
   if (
@@ -52,12 +56,7 @@ export function buildQaChecklist(context: QaContext = { activeGoal: null, planSe
     }
   }
 
-  lines.push(
-    "## MCP Host Agent Prompt",
-    "",
-    "Compare the implementation summary against Koan documents, including `koan/philosophy.md` when it exists. Separate Koan-spec compliance issues, philosophy-alignment issues, and general quality issues.",
-    ""
-  );
+  lines.push("## MCP Host Agent Prompt", "", adapterFor(host).qaPrompt, "");
 
   return lines.join("\n");
 }
