@@ -16,10 +16,19 @@ import {
 import { crystallize } from "../core/crystallize.js";
 import { buildPrd } from "../core/prd.js";
 import { runDashboard } from "./dashboard.js";
-import { defaultProfile, loadProfile, resetProfile, saveProfile } from "../core/profile.js";
+import { defaultProfile, loadProfile, resetProfile } from "../core/profile.js";
 import { getQuestion, type KoanQuestion } from "../core/questions.js";
 import { ANSWERED_CLARITY } from "../core/scoring.js";
-import type { AmbiguityAxis } from "../core/schemas.js";
+import type { AmbiguityAxis, UserProfile } from "../core/schemas.js";
+import {
+  AXIS_TOTAL,
+  ONBOARDING_COPY,
+  inviteRawIntent,
+  offerSkillInstall,
+  onboardingCopy,
+  progressStep,
+  runJourneyProfileSetup
+} from "./onboarding.js";
 import { createPrompter, type Prompter } from "./prompt.js";
 
 const BRIGHT_IDEA_CLASSIFICATIONS: readonly BrightIdeaClassification[] = [
@@ -28,12 +37,6 @@ const BRIGHT_IDEA_CLASSIFICATIONS: readonly BrightIdeaClassification[] = [
   "later-follow-up",
   "reject"
 ];
-
-const DEVELOPMENT_UNDERSTANDING_OPTIONS = ["non_technical", "beginner", "intermediate", "expert"] as const;
-const EXPLANATION_STYLE_OPTIONS = ["short", "example_first", "step_by_step", "technical_ok"] as const;
-const LANGUAGE_OPTIONS = ["ko", "en", "mixed"] as const;
-const OUTPUT_USE_OPTIONS = ["self_implementation", "agent_execution", "team_sharing", "learning"] as const;
-const LEARNING_MODE_OPTIONS = ["approval_required", "auto_with_review"] as const;
 
 // ---------------------------------------------------------------------------
 // Central argument contract
@@ -110,50 +113,9 @@ function usage(): string {
   ].join("\n");
 }
 
-async function runProfileSetup(prompt: Prompter, homeDir: string): Promise<void> {
-  const profile = defaultProfile();
-  let ended = false;
-
-  const choose = async <T extends string>(question: string, options: readonly T[], fallback: T): Promise<T> => {
-    if (ended) return fallback;
-    const line = await prompt.ask(question);
-    if (line === null) {
-      ended = true;
-      return fallback;
-    }
-    if (/^[0-9]+$/.test(line)) return options[Number.parseInt(line, 10) - 1] ?? fallback;
-    return options.find((option) => option === line) ?? fallback;
-  };
-
-  profile.developmentUnderstanding = await choose(
-    "Development understanding [1 non_technical / 2 beginner / 3 intermediate / 4 expert] (2): ",
-    DEVELOPMENT_UNDERSTANDING_OPTIONS,
-    profile.developmentUnderstanding
-  );
-  profile.explanationStyle = await choose(
-    "Explanation style [1 short / 2 example_first / 3 step_by_step / 4 technical_ok] (2): ",
-    EXPLANATION_STYLE_OPTIONS,
-    profile.explanationStyle
-  );
-  profile.language = await choose("Language [1 ko / 2 en / 3 mixed] (1): ", LANGUAGE_OPTIONS, profile.language);
-  profile.outputUse = await choose(
-    "Output use [1 self_implementation / 2 agent_execution / 3 team_sharing / 4 learning] (2): ",
-    OUTPUT_USE_OPTIONS,
-    profile.outputUse
-  );
-  if (!ended) {
-    const background = await prompt.ask("Domain background (free text, empty ok): ");
-    if (background === null) ended = true;
-    else profile.domainBackground = background;
-  }
-  profile.learningMode = await choose(
-    "Learning mode [1 approval_required / 2 auto_with_review] (1): ",
-    LEARNING_MODE_OPTIONS,
-    profile.learningMode
-  );
-
-  await saveProfile(homeDir, profile);
-  console.log("Profile saved.");
+// ANSI dim only on a real terminal; pipes get the plain line.
+function dimLine(text: string): string {
+  return process.stdout.isTTY === true ? `\x1b[2m${text}\x1b[0m` : text;
 }
 
 interface InteractiveHelloInput {
@@ -166,35 +128,53 @@ interface InteractiveHelloInput {
 
 async function runInteractiveHello(input: InteractiveHelloInput): Promise<number> {
   const { cwd, homeDir, result, prompt } = input;
-  if (input.firstRun) await runProfileSetup(prompt, homeDir);
-  const profile = (await loadProfile(homeDir)) ?? defaultProfile();
+
+  let profile: UserProfile;
+  if (input.firstRun) {
+    // First contact: a warm bilingual greeting before any language exists,
+    // then the journey setup, the skill offer, and the raw-intent invitation.
+    for (const line of ONBOARDING_COPY.ko.welcome) console.log(line);
+    profile = await runJourneyProfileSetup(prompt, homeDir);
+    const firstRunCopy = onboardingCopy(profile.language);
+    await offerSkillInstall(prompt, firstRunCopy);
+    await inviteRawIntent(prompt, result.projectRoot, firstRunCopy);
+    for (const line of firstRunCopy.transition) console.log(line);
+  } else {
+    profile = (await loadProfile(homeDir)) ?? defaultProfile();
+  }
+  const copy = onboardingCopy(profile.language);
 
   let question: KoanQuestion | null = result.nextQuestion
     ? getQuestion(result.nextQuestion.axis, profile)
     : null;
+  let unresolved: readonly string[] = result.unresolved;
 
   if (result.resumed && result.lastAnswer) {
-    console.log(`Last answer (${result.lastAnswer.axis}): ${result.lastAnswer.answer}`);
+    console.log(copy.resumeGreeting);
+    console.log(copy.resumeLastAnswer(result.lastAnswer.axis, result.lastAnswer.answer));
     let resumeChoice: "continue" | "revise" | "stop" | null = null;
     while (resumeChoice === null) {
-      const choice = await prompt.ask("Resume: [c]ontinue, [r]evise last answer, [s]top? ");
+      const choice = await prompt.ask(copy.resumeChoices);
       if (choice === null || choice === "s") resumeChoice = "stop";
       else if (choice === "r") resumeChoice = "revise";
       else if (choice === "c" || choice === "") resumeChoice = "continue";
-      else console.log(`Unrecognized choice: ${choice}`);
+      else console.log(copy.resumeUnrecognized(choice));
     }
     if (resumeChoice === "stop") {
-      console.log("Stopped. Run koan hello to continue.");
+      console.log(copy.stopped);
       return 0;
     }
     if (resumeChoice === "revise") question = getQuestion(result.lastAnswer.axis, profile);
+  } else if (!input.firstRun) {
+    console.log(copy.welcomeBack);
   }
 
   while (question) {
+    console.log(dimLine(copy.progress(question.axis, progressStep(unresolved, question.axis), AXIS_TOTAL)));
     console.log(question.userFacingQuestion);
     const line = await prompt.ask("> ");
     if (line === null || line === "stop" || line === "quit") {
-      console.log("Stopped. Run koan hello to continue.");
+      console.log(copy.stopped);
       return 0;
     }
     if (line === "enough") {
@@ -204,14 +184,15 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
     }
     if (line === "") continue;
     const recorded = await recordAnswer({ cwd, homeDir, axis: question.axis, answer: line });
-    console.log(`Recorded ${question.axis} (clarity ${ANSWERED_CLARITY}).`);
-    if (recorded.converged) console.log("All axes converged.");
+    console.log(copy.answerAck(question.axis, String(ANSWERED_CLARITY)));
+    if (recorded.converged) console.log(copy.convergedClosing);
+    unresolved = recorded.unresolved;
     question = recorded.nextQuestion;
   }
 
   const crystallized = await crystallize({ cwd, homeDir });
-  console.log(`Crystallized ${crystallized.crystallizedAxes.length} axes.`);
-  console.log("Session complete.");
+  console.log(copy.crystallized(crystallized.crystallizedAxes.length));
+  console.log(copy.sessionComplete);
   return 0;
 }
 
@@ -314,7 +295,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     if (flags.includes("--setup")) {
-      await runProfileSetup(getPrompter(), homeDir);
+      await runJourneyProfileSetup(getPrompter(), homeDir);
       return 0;
     }
 

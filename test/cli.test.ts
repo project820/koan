@@ -141,22 +141,85 @@ describe("CLI contract", () => {
     });
   });
 
-  it("interactive first run performs profile setup before the loop", async () => {
+  it("interactive first run walks the journey onboarding", async () => {
     await withTempProject(async (root) => {
       const home = await makeHome(root);
+
+      // language=en, five profile defaults, skill offer skipped with Enter,
+      // raw intent line, then stop at the first question.
+      const result = await runCli(["hello", "--interactive"], {
+        cwd: root,
+        home,
+        input: "2\n\n\n\n\n\n\nI want a calm planning tool\nstop\n"
+      });
+
+      expect(result.code).toBe(0);
+      // Warm bilingual greeting before any language exists.
+      expect(result.stdout).toContain("Koan에 오신 걸 환영해요");
+      // Language choice respected: setup confirmation and transition are English.
+      expect(result.stdout).toContain("Profile saved.");
+      expect(result.stdout).toContain("From here, Koan asks one question at a time");
+      // Skill offer skipped with Enter: no manual connect guidance printed.
+      expect(result.stdout).not.toContain("koan connect claude");
+      expect(result.stdout).not.toContain("koan connect codex");
+      // Progress marker is plain (no ANSI) on a pipe.
+      expect(result.stdout).toContain("(purpose · 1/11)");
+      expect(result.stdout).not.toContain("\x1b[2m");
+      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
+
+      const profile = JSON.parse(await readFile(join(home, ".koan/profile.json"), "utf8"));
+      expect(profile.language).toBe("en");
+
+      // Raw intent persisted into the MCP cache.
+      const cache = JSON.parse(await readFile(join(root, ".koan/mcp-cache.json"), "utf8"));
+      expect(cache.rawIntent).toBe("I want a calm planning tool");
+    });
+  });
+
+  it("interactive first run saves Korean defaults for empty answers", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+
+      // Six empty setup answers, skill offer skip, raw intent skip, then stop.
+      const result = await runCli(["hello", "--interactive"], {
+        cwd: root,
+        home,
+        input: `${"\n".repeat(8)}stop\n`
+      });
+
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("기억해 둘게요");
+      expect(result.stdout).toContain("이어가고 싶을 때 koan hello를 실행해 주세요.");
+
+      const profile = JSON.parse(await readFile(join(home, ".koan/profile.json"), "utf8"));
+      expect(profile.language).toBe("ko");
+
+      // Empty raw-intent line skips silently: nothing is written to the cache.
+      expect(await fileExists(join(root, ".koan/mcp-cache.json"))).toBe(false);
+    });
+  });
+
+  it("returning interactive run skips the greeting and uses resume copy", async () => {
+    await withTempProject(async (root) => {
+      const home = await makeHome(root);
+      await seedProfile(home);
+      await runCli(["hello"], { cwd: root, home });
+      await runCli(["answer", "purpose", "Original", "answer"], { cwd: root, home });
 
       const result = await runCli(["hello", "--interactive"], {
         cwd: root,
         home,
-        input: `${"\n".repeat(6)}stop\n`
+        input: "s\n"
       });
 
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("Profile saved.");
+      // No first-run greeting or setup on a returning run.
+      expect(result.stdout).not.toContain("환영해요");
+      expect(result.stdout).not.toContain("Profile saved.");
+      // Localized resume copy (seeded profile is en).
+      expect(result.stdout).toContain("Welcome back — let's pick up the journey where we left it.");
+      expect(result.stdout).toContain("Last answer (purpose):");
       expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
-
-      const profile = JSON.parse(await readFile(join(home, ".koan/profile.json"), "utf8"));
-      expect(profile.language).toBe("ko");
     });
   });
 
@@ -202,7 +265,8 @@ describe("CLI contract", () => {
       });
 
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("Profile saved.");
+      // Defaults select Korean, so the confirmation is the warm Korean line.
+      expect(result.stdout).toContain("기억해 둘게요");
 
       const profile = JSON.parse(await readFile(join(home, ".koan/profile.json"), "utf8"));
       expect(profile.language).toBe("ko");
