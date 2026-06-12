@@ -11,8 +11,8 @@ import {
   type Tool
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { recordAnswer } from "../core/answers.js";
-import { brightIdea, handoff, hello, qa, recordInsight, status, updateStatus } from "../core/commands.js";
+import { acceptClarity, recordAnswer } from "../core/answers.js";
+import { archive, brightIdea, handoff, hello, qa, recordInsight, status, updateStatus } from "../core/commands.js";
 import { CORE_DOCUMENTS, KOAN_VERSION, LAZY_DOCUMENTS, STATE_FILES } from "../core/constants.js";
 import { crystallize } from "../core/crystallize.js";
 import { collectDashboardSnapshot } from "../core/dashboard.js";
@@ -53,7 +53,9 @@ export const toolNames = [
   "koan_synthesize_prd",
   "koan_prepare_qa",
   "koan_prepare_handoff",
-  "koan_get_dashboard"
+  "koan_get_dashboard",
+  "koan_accept_clarity",
+  "koan_archive_goal"
 ] as const;
 
 type ToolName = (typeof toolNames)[number];
@@ -546,6 +548,34 @@ const tools: Record<ToolName, ToolDefinition> = {
         nextAction,
         experimental: { enabled: false, adapter: null }
       };
+    }
+  },
+  koan_accept_clarity: {
+    description:
+      "Accept the current clarity instead of answering further questions; marks the session ready (the MCP equivalent of koan enough).",
+    inputSchema: {
+      type: "object",
+      properties: { projectRoot: { type: "string" } },
+      required: ["projectRoot"]
+    },
+    handler: async (args) => {
+      const parsed = z.object({ projectRoot: z.string() }).parse(args);
+      const result = await acceptClarity({ cwd: parsed.projectRoot });
+      return { accepted: true, phase: "ready", projectRoot: result.projectRoot };
+    }
+  },
+  koan_archive_goal: {
+    description:
+      "Archive the active goal to koan/archive/<goal-id>/ (the MCP equivalent of koan status --archive).",
+    inputSchema: {
+      type: "object",
+      properties: { projectRoot: { type: "string" } },
+      required: ["projectRoot"]
+    },
+    handler: async (args) => {
+      const parsed = z.object({ projectRoot: z.string() }).parse(args);
+      const result = await archive({ cwd: parsed.projectRoot });
+      return { archived: true, archivedGoalId: result.archivedGoalId };
     }
   }
 };

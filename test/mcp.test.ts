@@ -30,7 +30,9 @@ describe("MCP server", () => {
       "koan_synthesize_prd",
       "koan_prepare_qa",
       "koan_prepare_handoff",
-      "koan_get_dashboard"
+      "koan_get_dashboard",
+      "koan_accept_clarity",
+      "koan_archive_goal"
     ]);
   });
 
@@ -630,6 +632,52 @@ describe("MCP semantic tools", () => {
       expect(result.domainBackground).toBe("fintech");
       expect(Array.isArray(result.changedFields)).toBe(true);
       expect([...result.changedFields].sort()).toEqual(["domainBackground", "language"]);
+    });
+  });
+
+  it("koan_accept_clarity marks the session ready and converges questioning", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+
+      const accepted = await callJson(client, "koan_accept_clarity", { projectRoot: root });
+      expect(accepted.accepted).toBe(true);
+      expect(accepted.phase).toBe("ready");
+      expect(typeof accepted.projectRoot).toBe("string");
+
+      const question = await callJson(client, "koan_get_next_question", {
+        projectRoot: root,
+        homeDir: home
+      });
+      expect(question).toEqual({ converged: true, question: null });
+
+      const reported = await callJson(client, "koan_get_status", { projectRoot: root });
+      expect(reported.nextAction).toBe("archive the completed goal (koan status --archive)");
+    });
+  });
+
+  it("koan_archive_goal archives the active goal and closes the session", async () => {
+    await withMcp(async ({ client, root, home }) => {
+      const started = await callJson(client, "koan_start_session", { projectRoot: root, homeDir: home });
+
+      const archived = await callJson(client, "koan_archive_goal", { projectRoot: root });
+      expect(archived.archived).toBe(true);
+      expect(archived.archivedGoalId).toBe(started.activeGoalId);
+
+      await expectToolError(
+        client,
+        "koan_record_answer",
+        { projectRoot: root, homeDir: home, axis: "purpose", answerText: "Too late: goal archived." },
+        /No active goal/
+      );
+
+      const reported = await callJson(client, "koan_get_status", { projectRoot: root });
+      expect(reported.nextAction).toBe("run koan hello to start a new goal");
+    });
+  });
+
+  it("koan_archive_goal rejects when no active goal exists", async () => {
+    await withMcp(async ({ client, root }) => {
+      await expectToolError(client, "koan_archive_goal", { projectRoot: root }, /No active goal/);
     });
   });
 
