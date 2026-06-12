@@ -137,12 +137,17 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
   if (input.firstRun) {
     // First contact: a warm bilingual greeting before any language exists,
     // then the journey setup, the skill offer, and the raw-intent invitation.
+    // When the project already carries a journey (fresh profile on an existing
+    // repo), skip the raw-intent invite and transition — the resume block
+    // greets the journey in progress instead of promising a new one.
     for (const line of ONBOARDING_COPY.ko.welcome) console.log(line);
     profile = await runJourneyProfileSetup(prompt, homeDir);
     const firstRunCopy = onboardingCopy(profile.language);
-    await offerSkillInstall(prompt, firstRunCopy, homeDir);
-    await inviteRawIntent(prompt, result.projectRoot, firstRunCopy);
-    for (const line of firstRunCopy.transition) console.log(line);
+    await offerSkillInstall(prompt, firstRunCopy, homeDir, profile.language);
+    if (!result.resumed) {
+      await inviteRawIntent(prompt, result.projectRoot, firstRunCopy);
+      for (const line of firstRunCopy.transition) console.log(line);
+    }
   } else {
     profile = (await loadProfile(homeDir)) ?? defaultProfile();
   }
@@ -183,7 +188,7 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
     }
     if (line === "enough") {
       await acceptClarity({ cwd });
-      console.log("Accepted current clarity.");
+      console.log(copy.acceptedClarity);
       break;
     }
     if (line === "") continue;

@@ -63,6 +63,7 @@ export interface OnboardingCopy {
   transition: readonly string[];
   progress: (axis: string, step: number, total: number) => string;
   answerAck: (axis: string, clarity: string) => string;
+  acceptedClarity: string;
   convergedClosing: string;
   resumeGreeting: string;
   resumeLastAnswer: (axis: string, answer: string) => string;
@@ -122,6 +123,7 @@ export const ONBOARDING_COPY: Record<"ko" | "en" | "mixed", OnboardingCopy> = {
     ],
     progress: PROGRESS,
     answerAck: (axis, clarity) => `기록했어요 — ${axis} (clarity ${clarity})`,
+    acceptedClarity: "좋아요, 지금의 또렷함으로 충분해요. 여기까지의 생각을 문서로 새길게요.",
     convergedClosing: "모든 축이 또렷해졌어요. 생각이 충분히 여물었네요.",
     resumeGreeting: "다시 만나서 반가워요. 지난 여정을 이어가 볼까요?",
     resumeLastAnswer: (axis, answer) => `지난 답변 (${axis}): ${answer}`,
@@ -164,15 +166,16 @@ export const ONBOARDING_COPY: Record<"ko" | "en" | "mixed", OnboardingCopy> = {
     ],
     progress: PROGRESS,
     answerAck: (axis, clarity) => `Recorded ${axis} (clarity ${clarity}).`,
-    convergedClosing: "All axes converged.",
+    acceptedClarity: "Good — the clarity you have is enough. Let's engrave what we've found.",
+    convergedClosing: "Every axis has come into focus — your thinking has ripened.",
     resumeGreeting: "Welcome back — let's pick up the journey where we left it.",
     resumeLastAnswer: (axis, answer) => `Last answer (${axis}): ${answer}`,
     resumeChoices: "Resume: [c]ontinue, [r]evise last answer, [s]top? ",
     resumeUnrecognized: (choice) => `Unrecognized choice: ${choice}`,
     welcomeBack: "Welcome back. Let's look into this new goal together.",
-    stopped: "Stopped. Run koan hello to continue.",
-    sessionComplete: "Session complete.",
-    crystallized: (count) => `Crystallized ${count} axes.`
+    stopped: "Pausing here. Run koan hello whenever you're ready to continue.",
+    sessionComplete: "That's today's journey. Well walked.",
+    crystallized: (count) => `Engraved ${count} axes into your documents.`
   },
   mixed: {
     welcome: BILINGUAL_WELCOME,
@@ -205,6 +208,7 @@ export const ONBOARDING_COPY: Record<"ko" | "en" | "mixed", OnboardingCopy> = {
     ],
     progress: PROGRESS,
     answerAck: (axis, clarity) => `기록했어요 — ${axis} (clarity ${clarity})`,
+    acceptedClarity: "좋아요, 지금의 clarity로 충분해요. 여기까지의 생각을 문서로 새길게요.",
     convergedClosing: "모든 axis가 또렷해졌어요. 생각이 충분히 여물었네요.",
     resumeGreeting: "다시 만나서 반가워요. 지난 journey를 이어가 볼까요?",
     resumeLastAnswer: (axis, answer) => `지난 answer (${axis}): ${answer}`,
@@ -300,26 +304,37 @@ export async function runJourneyProfileSetup(prompt: Prompter, homeDir: string):
   return saved;
 }
 
-// Offer to install Koan as a skill for Claude Code / Codex. A selection runs
-// the real installer (skill files + MCP registration attempt); the guidance
-// copy remains as a pointer for anyone who skips now and wants it later.
+// Offer to install Koan as a skill for Claude Code / Codex. A selection (or a
+// plain "yes") runs the real installer; Enter/EOF skips silently; anything
+// else prints the manual-connect guidance so the path stays discoverable.
+const AFFIRMATIVES = new Set(["y", "yes", "네", "예", "응", "그래", "좋아"]);
+
 export async function offerSkillInstall(
   prompt: Prompter,
   copy: OnboardingCopy,
-  homeDir: string
+  homeDir: string,
+  language: UserProfile["language"]
 ): Promise<void> {
   console.log(copy.skillOffer);
-  const line = await prompt.ask(copy.skillOfferHint);
+  const line = (await prompt.ask(copy.skillOfferHint))?.trim().toLowerCase() ?? "";
   const agents: ConnectAgent[] =
     line === "1" || line === "claude"
       ? ["claude"]
       : line === "2" || line === "codex"
         ? ["codex"]
-        : line === "3" || line === "both"
+        : line === "3" || line === "both" || AFFIRMATIVES.has(line)
           ? ["claude", "codex"]
           : [];
-  if (agents.length === 0) return; // Enter, EOF, unrecognized: skip silently.
-  await runConnect({ agents, homeDir });
+  if (agents.length > 0) {
+    await runConnect({ agents, homeDir, language });
+    return;
+  }
+  if (line.length > 0) {
+    // Unrecognized non-empty input: don't install, but leave a pointer.
+    console.log(copy.skillGuidanceClaude);
+    console.log(copy.skillGuidanceCodex);
+  }
+  // Enter or EOF: skip silently.
 }
 
 // Invite one unpolished line of raw intent before the question loop begins.

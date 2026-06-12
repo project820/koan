@@ -133,8 +133,9 @@ describe("CLI contract", () => {
       expect(result.stdout).toContain("Koan ready:");
       expect(result.stdout).not.toContain("Profile saved.");
       expect(result.stdout).toContain("Recorded purpose (clarity 0.8).");
-      expect(result.stdout).toMatch(/Crystallized \d+ axes\./);
-      expect(result.stdout).toContain("Session complete.");
+      expect(result.stdout).toContain("Good — the clarity you have is enough.");
+      expect(result.stdout).toMatch(/Engraved \d+ axes into your documents\./);
+      expect(result.stdout).toContain("That's today's journey. Well walked.");
 
       const goal = await readFile(join(root, "koan/goal.md"), "utf8");
       expect(managedSection(goal, "purpose")).toContain("Purpose answer line");
@@ -165,7 +166,7 @@ describe("CLI contract", () => {
       // Progress marker is plain (no ANSI) on a pipe.
       expect(result.stdout).toContain("(purpose · 1/11)");
       expect(result.stdout).not.toContain("\x1b[2m");
-      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
+      expect(result.stdout).toContain("Pausing here. Run koan hello whenever you're ready to continue.");
 
       const profile = JSON.parse(await readFile(join(home, ".koan/profile.json"), "utf8"));
       expect(profile.language).toBe("en");
@@ -219,7 +220,7 @@ describe("CLI contract", () => {
       // Localized resume copy (seeded profile is en).
       expect(result.stdout).toContain("Welcome back — let's pick up the journey where we left it.");
       expect(result.stdout).toContain("Last answer (purpose):");
-      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
+      expect(result.stdout).toContain("Pausing here. Run koan hello whenever you're ready to continue.");
     });
   });
 
@@ -235,8 +236,8 @@ describe("CLI contract", () => {
       });
 
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
-      expect(result.stdout).not.toContain("Crystallized");
+      expect(result.stdout).toContain("Pausing here. Run koan hello whenever you're ready to continue.");
+      expect(result.stdout).not.toContain("Engraved");
     });
   });
 
@@ -548,8 +549,8 @@ describe("CLI contract", () => {
       });
 
       expect(result.code).toBe(0);
-      expect(result.stdout).toContain("All axes converged.");
-      expect(result.stdout).toContain("Session complete.");
+      expect(result.stdout).toContain("Every axis has come into focus — your thinking has ripened.");
+      expect(result.stdout).toContain("That's today's journey. Well walked.");
     });
   });
 
@@ -569,7 +570,7 @@ describe("CLI contract", () => {
       expect(result.code).toBe(0);
       const resumePrompt = "Resume: [c]ontinue, [r]evise last answer, [s]top?";
       expect(result.stdout.split(resumePrompt).length - 1).toBe(2);
-      expect(result.stdout).toContain("Stopped. Run koan hello to continue.");
+      expect(result.stdout).toContain("Pausing here. Run koan hello whenever you're ready to continue.");
       expect(result.stdout).not.toContain("Recorded");
     });
   });

@@ -10,6 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { KOAN_VERSION } from "../core/constants.js";
 import { adapterFor, type HostId } from "../core/hostAdapter.js";
+import { loadProfile } from "../core/profile.js";
 
 export type ConnectAgent = "claude" | "codex";
 
@@ -24,7 +25,55 @@ export interface ConnectInput {
   print?: boolean;
   exec?: ExecFn;
   out?: (line: string) => void;
+  /** Output language; defaults to the saved profile's language. */
+  language?: ConnectLanguage;
 }
+
+export type ConnectLanguage = "ko" | "en" | "mixed";
+
+interface ConnectCopy {
+  wrote: (path: string) => string;
+  registered: (agent: ConnectAgent, command: string) => string;
+  registrationFailed: (command: string) => string;
+  codexConfigHint: string;
+  printMode: string;
+  complete: (count: number) => string;
+}
+
+// runConnect speaks the user's language end to end — the failure path is the
+// moment localization matters most, since it lands mid-onboarding.
+const CONNECT_COPY: Record<ConnectLanguage, ConnectCopy> = {
+  ko: {
+    wrote: (path) => `스킬 파일을 만들었어요: ${path}`,
+    registered: (agent, command) => `${agent}에 koan MCP 서버를 등록했어요: ${command}`,
+    registrationFailed: (command) =>
+      `자동 등록에 실패했어요. 이 명령을 직접 실행해 주세요: ${command}`,
+    codexConfigHint:
+      '또는 ~/.codex/config.toml 에 [mcp_servers.koan] 섹션을 추가하세요: command = "koan-mcp"',
+    printMode: "출력 모드: 파일 쓰기와 등록은 하지 않았어요.",
+    complete: (count) => `koan connect 완료: 파일 ${count}개를 만들었어요.`
+  },
+  en: {
+    wrote: (path) => `Wrote ${path}`,
+    registered: (agent, command) => `Registered the koan MCP server for ${agent}: ${command}`,
+    registrationFailed: (command) =>
+      `Automatic registration failed. Please run this command yourself: ${command}`,
+    codexConfigHint:
+      'Or add an [mcp_servers.koan] section to ~/.codex/config.toml: command = "koan-mcp"',
+    printMode: "Print mode: no files written, no registration attempted.",
+    complete: (count) => `koan connect complete: ${count} file(s) written.`
+  },
+  mixed: {
+    wrote: (path) => `skill 파일을 만들었어요: ${path}`,
+    registered: (agent, command) => `${agent}에 koan MCP server를 등록했어요: ${command}`,
+    registrationFailed: (command) =>
+      `자동 등록에 실패했어요. 이 command를 직접 실행해 주세요: ${command}`,
+    codexConfigHint:
+      '또는 ~/.codex/config.toml 에 [mcp_servers.koan] section을 추가하세요: command = "koan-mcp"',
+    printMode: "print mode: 파일 쓰기와 등록은 하지 않았어요.",
+    complete: (count) => `koan connect 완료: 파일 ${count}개를 만들었어요.`
+  }
+};
 
 // All 17 MCP tool names as string literals. Track B adds koan_accept_clarity
 // and koan_archive_goal in parallel, so we cannot import toolNames from
@@ -74,6 +123,8 @@ function buildBody(host: HostId): string {
     "When the user wants to clarify what to build (or invokes /koan with no arguments):",
     "",
     "1. Call `koan_start_session`, capturing the user's free-form words as `rawIntent`.",
+    "",
+    "Every tool takes `projectRoot` (the absolute path of the user's project) and most also take `homeDir` (the user's absolute home directory — never `~`); pass both on every call.",
     "2. Loop:",
     "   - Call `koan_get_next_question`.",
     "   - Re-express the question naturally in the user's language and tone. Ask one question at a time — a conversation, never an interrogation.",
@@ -100,7 +151,8 @@ function buildBody(host: HostId): string {
     "| CLI command | MCP tool(s) |",
     "| --- | --- |",
     "| `koan hello` | `koan_start_session` |",
-    "| `koan hello --setup` / `koan hello --profile` | `koan_get_profile` / `koan_update_profile` |",
+    "| `koan hello --setup` | `koan_update_profile` |",
+    "| `koan hello --profile` | `koan_get_profile` |",
     "| `koan status` | `koan_get_status` |",
     "| `koan status --update <text>` | `koan_update_status` |",
     "| `koan status --archive` | `koan_archive_goal` |",
@@ -174,6 +226,8 @@ const defaultExec: ExecFn = (cmd, args) => {
 export async function runConnect(input: ConnectInput): Promise<number> {
   const out = input.out ?? ((line: string) => console.log(line));
   const exec = input.exec ?? defaultExec;
+  const language = input.language ?? (await loadProfile(input.homeDir))?.language ?? "ko";
+  const copy = CONNECT_COPY[language];
   const written: string[] = [];
 
   for (const agent of input.agents) {
@@ -190,7 +244,7 @@ export async function runConnect(input: ConnectInput): Promise<number> {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, "utf8");
     written.push(path);
-    out(`Wrote ${path}`);
+    out(copy.wrote(path));
 
     const command = registrationCommand(agent);
     let registered = false;
@@ -202,23 +256,19 @@ export async function runConnect(input: ConnectInput): Promise<number> {
     }
 
     if (registered) {
-      out(`Registered koan MCP server for ${agent}: ${command.join(" ")}`);
+      out(copy.registered(agent, command.join(" ")));
     } else {
-      out(
-        `자동 등록에 실패했습니다. 등록 명령을 직접 실행해 주세요: ${command.join(" ")}`
-      );
+      out(copy.registrationFailed(command.join(" ")));
       if (agent === "codex") {
-        out(
-          '또는 ~/.codex/config.toml 에 [mcp_servers.koan] 섹션을 추가하세요: command = "koan-mcp"'
-        );
+        out(copy.codexConfigHint);
       }
     }
   }
 
   if (input.print) {
-    out("Print mode: no files written, no registration attempted.");
+    out(copy.printMode);
   } else {
-    out(`koan connect complete: ${written.length} file(s) written.`);
+    out(copy.complete(written.length));
   }
   return 0;
 }

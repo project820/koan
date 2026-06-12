@@ -163,12 +163,12 @@ describe("koan connect", () => {
 
   it("reports successful registration when exec returns status 0", async () => {
     const { exec, calls } = fakeExec(0);
-    await runConnect({ agents: ["claude"], homeDir, exec, out });
+    await runConnect({ agents: ["claude"], homeDir, exec, out, language: "en" });
 
     expect(calls).toHaveLength(1);
     expect([calls[0].cmd, ...calls[0].args]).toEqual(registrationCommand("claude"));
     const output = lines.join("\n");
-    expect(output).toContain("Registered koan MCP server for claude");
+    expect(output).toContain("Registered the koan MCP server for claude");
     expect(output).toContain(`Wrote ${claudePath()}`);
     expect(output).toContain("1 file(s) written");
   });
@@ -177,9 +177,21 @@ describe("koan connect", () => {
     const { exec } = fakeExec(1);
     await runConnect({ agents: ["claude"], homeDir, exec, out });
 
+    // No profile in the fake home: defaults to Korean copy.
     const output = lines.join("\n");
-    expect(output).toContain("등록 명령을 직접 실행해 주세요");
+    expect(output).toContain("이 명령을 직접 실행해 주세요");
     expect(output).toContain("claude mcp add --scope user koan koan-mcp");
+  });
+
+  it("localizes every output line to the requested language", async () => {
+    const { exec } = fakeExec(1);
+    await runConnect({ agents: ["codex"], homeDir, exec, out, language: "en" });
+
+    const output = lines.join("\n");
+    expect(output).toContain("Automatic registration failed. Please run this command yourself:");
+    expect(output).toContain("Or add an [mcp_servers.koan] section to ~/.codex/config.toml");
+    // Zero Korean once English is chosen.
+    expect(/[가-힣]/.test(output.replace(/^---.*$/gm, ""))).toBe(false);
   });
 
   it("prints the manual command and config.toml hint when exec throws (codex)", async () => {

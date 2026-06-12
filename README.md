@@ -37,7 +37,8 @@ or API key is required.
   a short welcome, profile questions in your language, an optional skill
   install for Claude Code/Codex, and an open invitation to describe what's
   on your mind before the first question.
-- `koan hello --setup` — guided profile setup.
+- `koan hello --setup` — guided profile setup (since v0.4 the language is
+  asked first and all setup output follows the chosen language).
 - `koan hello --profile` — print the global profile (read-only).
 - `koan hello --reset-profile [--yes]` — delete the global profile (`--yes`
   skips confirmation).
