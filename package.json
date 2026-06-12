@@ -3,6 +3,24 @@
   "version": "0.2.0",
   "description": "Local-first philosophical PRD tool that crystallizes vague intent into product requirements, QA criteria, and AI-agent-ready handoff documents.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/project820/koan.git"
+  },
+  "homepage": "https://github.com/project820/koan#readme",
+  "bugs": "https://github.com/project820/koan/issues",
+  "keywords": [
+    "prd",
+    "requirements",
+    "product-management",
+    "mcp",
+    "mcp-server",
+    "ai-agents",
+    "local-first",
+    "cli",
+    "intent",
+    "philosophy"
+  ],
   "type": "module",
   "bin": {
     "koan": "./dist/cli/main.js",
