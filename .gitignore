@@ -3,5 +3,6 @@ dist/
 tmp/
 .worktrees/
 docs/superpowers/
+.claude/
 .env
 .env.*

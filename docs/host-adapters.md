@@ -48,3 +48,12 @@ vendor's prompting guide recommends.
 Vendor guides evolve. When updating a variant, change the phrasing freely but
 keep the required-token tests green — they are the semantic floor, not a
 style constraint.
+
+## Skill pack
+
+`koan connect` (`src/cli/connect.ts`) generates the `/koan` skill for Claude
+Code and the Codex prompt from the same adapters — the skill embeds each
+host's `questionInstruction`, `qaPrompt`, and `prdSynthesisInstruction`
+verbatim, plus the clarity rubric and the full CLI↔MCP routing table. One
+source, three surfaces: MCP instructions, generated documents, and installed
+skills stay in agreement.

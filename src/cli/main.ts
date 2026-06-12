@@ -15,6 +15,7 @@ import {
 } from "../core/commands.js";
 import { crystallize } from "../core/crystallize.js";
 import { buildPrd } from "../core/prd.js";
+import { runConnect, type ConnectAgent } from "./connect.js";
 import { runDashboard } from "./dashboard.js";
 import { defaultProfile, loadProfile, resetProfile } from "../core/profile.js";
 import { getQuestion, type KoanQuestion } from "../core/questions.js";
@@ -71,6 +72,7 @@ const COMMAND_CONTRACTS = {
   enough: { flags: [], positionals: "none" },
   crystallize: { flags: ["--dry-run"], positionals: "none" },
   "bright-idea": { flags: ["--classify"], positionals: "text" },
+  connect: { flags: ["--print"], positionals: "text" },
   dashboard: { flags: ["--once"], positionals: "none" },
   insight: { flags: [], positionals: "text" },
   prd: { flags: ["--dry-run"], positionals: "none" },
@@ -104,6 +106,8 @@ function usage(): string {
     "  crystallize [--dry-run]    write recorded answers into project documents",
     "  bright-idea [--classify <type>] <text>",
     "                             record a new idea without changing the plan",
+    "  connect [--print] <claude|codex|both>",
+    "                             install the /koan skill and register the MCP server",
     "  dashboard [--once]         live read-only view of clarity, goal, and insights",
     "  insight <text>             append a product realization to philosophy.md",
     "  prd [--dry-run]            synthesize koan/prd.md from recorded answers",
@@ -136,7 +140,7 @@ async function runInteractiveHello(input: InteractiveHelloInput): Promise<number
     for (const line of ONBOARDING_COPY.ko.welcome) console.log(line);
     profile = await runJourneyProfileSetup(prompt, homeDir);
     const firstRunCopy = onboardingCopy(profile.language);
-    await offerSkillInstall(prompt, firstRunCopy);
+    await offerSkillInstall(prompt, firstRunCopy, homeDir);
     await inviteRawIntent(prompt, result.projectRoot, firstRunCopy);
     for (const line of firstRunCopy.transition) console.log(line);
   } else {
@@ -404,6 +408,19 @@ async function main(argv: string[]): Promise<number> {
     const result = await brightIdea({ cwd, idea, classification });
     console.log(`Bright idea recorded (${result.classification}). ${result.recommendation}`);
     return 0;
+  }
+
+  if (command === "connect") {
+    const parsed = parseCommandArgs("connect", rest);
+    if (parsed === null) return 1;
+    const target = parsed.text.join(" ").trim();
+    const agents: ConnectAgent[] =
+      target === "claude" ? ["claude"] : target === "codex" ? ["codex"] : target === "both" ? ["claude", "codex"] : [];
+    if (agents.length === 0) {
+      console.error("Usage: koan connect [--print] <claude|codex|both>");
+      return 1;
+    }
+    return runConnect({ agents, homeDir, print: parsed.flags.includes("--print") });
   }
 
   if (command === "dashboard") {

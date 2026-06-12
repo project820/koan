@@ -1,6 +1,7 @@
 import { updateMcpCache } from "../core/mcpCache.js";
 import { defaultProfile, saveProfile } from "../core/profile.js";
 import { AmbiguityAxisSchema, type UserProfile } from "../core/schemas.js";
+import { runConnect, type ConnectAgent } from "./connect.js";
 import type { Prompter } from "./prompt.js";
 
 // ---------------------------------------------------------------------------
@@ -299,21 +300,26 @@ export async function runJourneyProfileSetup(prompt: Prompter, homeDir: string):
   return saved;
 }
 
-// Offer to install Koan as a skill for Claude Code / Codex. For now this
-// prints manual command guidance; a separate track builds `koan connect`.
-// integration: replace guidance with runConnect from ./connect.js
-export async function offerSkillInstall(prompt: Prompter, copy: OnboardingCopy): Promise<void> {
+// Offer to install Koan as a skill for Claude Code / Codex. A selection runs
+// the real installer (skill files + MCP registration attempt); the guidance
+// copy remains as a pointer for anyone who skips now and wants it later.
+export async function offerSkillInstall(
+  prompt: Prompter,
+  copy: OnboardingCopy,
+  homeDir: string
+): Promise<void> {
   console.log(copy.skillOffer);
   const line = await prompt.ask(copy.skillOfferHint);
-  if (line === "1" || line === "claude") {
-    console.log(copy.skillGuidanceClaude);
-  } else if (line === "2" || line === "codex") {
-    console.log(copy.skillGuidanceCodex);
-  } else if (line === "3" || line === "both") {
-    console.log(copy.skillGuidanceClaude);
-    console.log(copy.skillGuidanceCodex);
-  }
-  // Anything else (Enter, EOF, unrecognized) skips silently.
+  const agents: ConnectAgent[] =
+    line === "1" || line === "claude"
+      ? ["claude"]
+      : line === "2" || line === "codex"
+        ? ["codex"]
+        : line === "3" || line === "both"
+          ? ["claude", "codex"]
+          : [];
+  if (agents.length === 0) return; // Enter, EOF, unrecognized: skip silently.
+  await runConnect({ agents, homeDir });
 }
 
 // Invite one unpolished line of raw intent before the question loop begins.

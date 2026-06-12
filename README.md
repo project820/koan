@@ -33,7 +33,10 @@ The CLI works standalone with deterministic question templates; no host agent
 or API key is required.
 
 - `koan hello` — initialize or resume a session; runs the question loop on a
-  TTY (force it with `--interactive`).
+  TTY (force it with `--interactive`). The first run is a guided journey:
+  a short welcome, profile questions in your language, an optional skill
+  install for Claude Code/Codex, and an open invitation to describe what's
+  on your mind before the first question.
 - `koan hello --setup` — guided profile setup.
 - `koan hello --profile` — print the global profile (read-only).
 - `koan hello --reset-profile [--yes]` — delete the global profile (`--yes`
@@ -56,6 +59,8 @@ or API key is required.
   philosophy first.
 - `koan qa` — create or refresh the QA checklist.
 - `koan handoff <summary>` — create a document-based handoff.
+- `koan connect [--print] <claude|codex|both>` — install the `/koan` skill
+  for Claude Code or Codex and register the MCP server (see Agent Skills).
 
 ## MCP Server
 
@@ -79,6 +84,8 @@ From a checkout, `npm run mcp` starts the same server.
 | `koan_prepare_qa` | Generate `koan/qa.md` with spec-compliance and quality checks; embeds an optional implementation summary and returns the checklist. |
 | `koan_prepare_handoff` | Generate `koan/handoff.md` (summary text optional); returns the document and next action; touchless handoff stays disabled. |
 | `koan_get_dashboard` | Read-only snapshot of session phase, per-axis clarity, next question, insights, and warnings — the same data behind `koan dashboard`. |
+| `koan_accept_clarity` | Accept current clarity and mark the session ready (the MCP equivalent of `koan enough`). |
+| `koan_archive_goal` | Archive the active goal to `koan/archive/<goal-id>/` (the MCP equivalent of `koan status --archive`). |
 
 All tool results are JSON in the first text content block; inputs are
 zod-validated and failures surface as MCP errors.
@@ -88,6 +95,19 @@ managed document writes) while the host agent supplies interpretation —
 rephrasing questions, structuring answers, and scoring clarity through
 `interpretation.clarity` on `koan_record_answer`. Without a host, the CLI runs
 the same flow with built-in templates.
+
+## Agent Skills
+
+`koan connect claude` (or `codex`, or `both`) installs a `/koan` skill so the
+whole journey works without leaving your agent: it writes
+`~/.claude/skills/koan/SKILL.md` or `~/.codex/prompts/koan.md` and attempts
+MCP registration (`claude mcp add` / `codex mcp add`), printing the manual
+command if that fails. The skill is a playbook, not a second implementation:
+it maps every CLI command to its MCP tool, carries the clarity-scoring rubric
+hosts should use for `interpretation.clarity`, and falls back to the `koan`
+CLI when MCP is unavailable. Re-run `koan connect` after upgrading to refresh
+the installed skill. The first-run onboarding offers this install
+automatically.
 
 ## Project Files
 

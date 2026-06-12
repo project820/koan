@@ -1,6 +1,6 @@
 {
   "name": "@koan-labs/koan",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local-first philosophical PRD tool that crystallizes vague intent into product requirements, QA criteria, and AI-agent-ready handoff documents.",
   "license": "MIT",
   "repository": {

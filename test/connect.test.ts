@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KOAN_VERSION } from "../src/core/constants.js";
 import { adapterFor } from "../src/core/hostAdapter.js";
 import {
+  CONNECT_TOOL_NAMES,
   buildClaudeSkill,
   buildCodexPrompt,
   registrationCommand,
   runConnect,
   type ExecFn
 } from "../src/cli/connect.js";
+import { toolNames } from "../src/mcp/server.js";
 
 const CLI_COMMANDS = [
   "hello",
@@ -66,6 +68,10 @@ function throwingExec() {
 }
 
 describe("koan connect", () => {
+  it("routes exactly the tools the MCP server registers", () => {
+    expect([...CONNECT_TOOL_NAMES].sort()).toEqual([...toolNames].sort());
+  });
+
   let homeDir: string;
   let lines: string[];
   const out = (line: string) => lines.push(line);
